@@ -14,6 +14,7 @@ const char* to_string(RunPointType t) noexcept {
         case RunPointType::WrittenThenExec: return "written-then-exec";
         case RunPointType::Condition: return "condition";
         case RunPointType::Syscall: return "syscall";
+        case RunPointType::Fault: return "fault";
     }
     return "?";
 }
@@ -70,6 +71,9 @@ bool MacroEngine::matches(const RunPoint& rp, const Event& e) const {
         case RunPointType::Syscall:
             // rp.address reused as an optional syscall-number filter (0 = any).
             return e.kind == EventKind::Syscall && (rp.address == 0 || e.value == rp.address);
+        case RunPointType::Fault:
+            // Break-on-exception: any CPU fault / malformed-instruction / bad-access.
+            return e.kind == EventKind::Fault;
     }
     return false;
 }

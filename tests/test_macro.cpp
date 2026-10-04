@@ -98,4 +98,46 @@ TEST("recording captures commands into a macro") {
     CHECK(macro->mutating);
 }
 
+TEST("fault run point catches a CPU exception (break on exception)") {
+    // A single `add [rax], al` with rax=0 -> write to the unmapped address 0 faults.
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, {0x00, 0x00}, perm::RWX);  // add byte ptr [rax], al
+    s.set_entry(0x1000);
+
+    RunPoint rp;
+    rp.type = RunPointType::Fault;
+    rp.pause = true;
+    u64 id = s.add_run_point(std::move(rp));
+
+    StepOutcome o = s.run();
+    CHECK(o.status == StepOutcome::Status::Fault);   // execution broke on the fault
+    CHECK(s.run_points()[0].hit_count >= 1);         // the fault run point fired
+    // The fault is a recorded event, so the break is time-travel visible.
+    bool saw_fault = false;
+    for (const auto& e : s.history().events())
+        if (e.kind == EventKind::Fault) saw_fault = true;
+    CHECK(saw_fault);
+    CHECK(s.remove_run_point(id));
+}
+
+TEST("fault handler macro fires on the exception") {
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, {0x00, 0x00}, perm::RWX);
+    s.set_entry(0x1000);
+
+    RunPoint rp;
+    rp.type = RunPointType::Fault;
+    u64 id = s.add_run_point(std::move(rp));
+    bool handled = false;
+    auto m = std::make_shared<Macro>();
+    m->name = "on-fault";
+    m->callback = [&](IDebugController&) { handled = true; };
+    s.bind_macro(id, m);
+
+    s.run();
+    CHECK(handled);  // the bound handler ran when the fault was raised
+}
+
 int main() { return dede::test::run_all(); }

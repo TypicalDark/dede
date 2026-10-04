@@ -92,6 +92,29 @@ void run_dynamic_checks() {
         auto h = opcode_histogram(Arch::X86_64, reader_of(s), 0x1000, 20);
         rec(5,'A',"Opcode frequency + anomaly", V::PASS, "opcode_histogram(): "+std::to_string(h.size())+" distinct mnemonics + NOP-ratio flag");
     }
+    // 40: break on exception — a Fault run point catches a CPU fault, the handler
+    // fires, and the fault is recorded as a time-travel-visible event.
+    {
+        AnalysisSession s(Arch::X86_64);
+        s.map(0x1000, 0x1000, perm::RWX);
+        s.load(0x1000, {0x00, 0x00}, perm::RWX);  // add [rax],al with rax=0 -> fault
+        s.set_entry(0x1000);
+        RunPoint rp; rp.type = RunPointType::Fault; rp.pause = true;
+        s.add_run_point(std::move(rp));
+        bool handled = false;
+        auto m = std::make_shared<Macro>();
+        m->callback = [&](IDebugController&) { handled = true; };
+        s.bind_macro(s.run_points().back().id, m);
+        StepOutcome o = s.run();
+        bool faulted = o.status == StepOutcome::Status::Fault;
+        bool fired = !s.run_points().empty() && s.run_points().back().hit_count >= 1;
+        // honest PARTIAL: break + catch + observe + handler, but no SEH dispatch /
+        // faulting-instruction restart (tracked in TRANSPARENCY.md roadmap).
+        rec(40,'C',"Break on exception",
+            (faulted && fired && handled) ? V::PARTIAL : V::FAIL,
+            "RunPointType::Fault breaks on the fault, fires a handler macro, and records "
+            "a Fault event (time-travel visible); no SEH chain / auto-resume yet");
+    }
     // 6 & 70: call graph
     {
         auto s = fresh(kLoop);
@@ -336,7 +359,6 @@ int main(int argc, char** argv) {
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");
     rec(37,'C',"Call tracing / call stack", V::PARTIAL, "call events traced; heuristic unwind not yet implemented");
     rec(38,'C',"Return-address / stack integrity", V::PARTIAL, "stack visible; no automatic corruption detector yet");
-    rec(40,'C',"Break on exception", V::FAIL, "fault-delivery channel is the top transparency-roadmap item");
     rec(44,'C',"Memory allocation tracking", V::NA, "no heap/allocator model (flat image)");
     rec(45,'C',"Multi-threaded debugging", V::NA, "single-threaded deterministic core by design");
     rec(51,'D',"Signature-based packer/protector ID", V::NA, "PE-packer signatures (VMProtect/Denuvo) out of scope for a flat engine");

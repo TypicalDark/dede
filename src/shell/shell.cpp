@@ -143,7 +143,7 @@ bool Shell::execute(const std::string& line) {
             "  runto <addr>             run until rip == addr\n"
             "  goto <tick>              seek to an absolute instruction count\n"
             "  bp <addr>                set a breakpoint (pausing run point)\n"
-            "  rp [del <id>|cond <e>|wx|mem <a>]  list/manage run points\n"
+            "  rp [del <id>|cond <e>|wx|mem <a>|fault]  list/manage run points\n"
             "  where | w                show current instruction\n"
             "  timeline | tl            timeline statistics\n"
             "  transparency on|off      toggle the anti-analysis layer\n"
@@ -272,8 +272,12 @@ bool Shell::execute(const std::string& line) {
 
     if (cmd == "run" || cmd == "c" || cmd == "continue") {
         StepOutcome o = s_.run();
-        out_ << "stopped at " << hex(s_.rip()) << " (" << o.note << ") tick "
-             << s_.now() << "\n";
+        if (o.status == StepOutcome::Status::Fault)
+            out_ << "** FAULT at " << hex(s_.rip()) << ": " << o.note << "  (tick "
+                 << s_.now() << ")\n";
+        else
+            out_ << "stopped at " << hex(s_.rip()) << " (" << o.note << ") tick "
+                 << s_.now() << "\n";
         return true;
     }
 
@@ -339,7 +343,16 @@ bool Shell::execute(const std::string& line) {
             out_ << "condition run point #" << s_.add_run_point(std::move(rp)) << "\n";
             return true;
         }
-        out_ << "usage: rp [list|del <id>|wx|mem <addr>|cond <expr>]\n";
+        if (tok[1] == "fault") {
+            RunPoint rp;
+            rp.type = RunPointType::Fault;   // break on any CPU fault / exception
+            rp.pause = true;
+            rp.label = "break-on-exception";
+            out_ << "fault run point #" << s_.add_run_point(std::move(rp))
+                 << " (breaks on any CPU fault)\n";
+            return true;
+        }
+        out_ << "usage: rp [list|del <id>|wx|mem <addr>|cond <expr>|fault]\n";
         return true;
     }
 

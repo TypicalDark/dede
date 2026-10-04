@@ -43,6 +43,15 @@ The single highest-leverage addition is a **guest exception-delivery channel**
 and dispatch to the sample's own handler (SEH / sigaction). It is the enabler for
 ~8 other checks, so it is the next major piece of work.
 
+A first step of this already exists: CPU faults are a **catchable, observable
+channel**. Every fault emits a `Fault` event (so it is recorded in history and is
+time-travel visible), execution breaks on it, and a `RunPointType::Fault` run
+point lets you bind a handler macro that fires on any exception — i.e. a
+*break-on-exception* / fault-observer facility (`rp fault` in the shell). What is
+still missing is *dispatch back into the guest's own handler* and faulting-
+instruction restart; the observer/break half is done, the SEH/sigaction half is
+the remaining work below.
+
 **Must (depend on or extend the above):**
 - Exception delivery channel (`#PF`/`#GP`/`#UD`/`#DB`) — the master mechanism.
 - Synthetic/reserved MSR must `#GP`, not return 0 (needs the fault channel).

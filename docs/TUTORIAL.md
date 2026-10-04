@@ -249,7 +249,9 @@ compared 20 bytes vs tier2.bin [flat]: 13 differ (first at 0x1003)
 ```
 
 See `help` for the full command list, including `opcodes`, `strings`, `search`,
-`watch`, and `who` (the time-travel "who last wrote this address?" query).
+`watch`, `who` (the time-travel "who last wrote this address?" query), and
+`rp fault` (break on exception — execution stops on any CPU fault, a bound handler
+macro fires, and the fault is recorded as a time-travel-visible event).
 
 ## The GUI
 
