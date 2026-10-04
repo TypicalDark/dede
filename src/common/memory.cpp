@@ -19,6 +19,7 @@ void GuestMemory::map(Addr base, u64 size, u8 permissions) {
         }
         perms_[p] = permissions;
     }
+    invalidate_rd_cache();
 }
 
 bool GuestMemory::is_mapped(Addr a) const {
@@ -33,8 +34,13 @@ u8 GuestMemory::permissions(Addr pb) const {
 void GuestMemory::set_permissions(Addr pb, u8 p) { perms_[page_base(pb)] = p; }
 
 const GuestPage* GuestMemory::page_for_read(Addr a) const {
-    auto it = pages_.find(page_base(a));
-    return it == pages_.end() ? nullptr : it->second.get();
+    u64 pb = page_base(a);
+    if (pb == rd_cache_base_) return rd_cache_page_;
+    auto it = pages_.find(pb);
+    const GuestPage* pg = (it == pages_.end()) ? nullptr : it->second.get();
+    rd_cache_base_ = pb;
+    rd_cache_page_ = pg;
+    return pg;
 }
 
 GuestPage* GuestMemory::page_for_write(Addr a) {
@@ -69,6 +75,8 @@ Result<void> GuestMemory::write8(Addr a, u8 v) {
     if (!pg) return make_error("write8: unmapped address");
     pg->bytes[page_off(a)] = v;
     mark_dirty(page_base(a));
+    ++write_gen_;
+    invalidate_rd_cache();  // a COW clone may have moved this page
     return {};
 }
 
@@ -124,6 +132,7 @@ void GuestMemory::restore(const MemorySnapshot& s) {
     pages_ = s.pages_;  // re-shares the snapshot's pages; future writes COW them
     perms_ = s.perms_;
     dirty_.clear();
+    invalidate_rd_cache();
 }
 
 }  // namespace dede

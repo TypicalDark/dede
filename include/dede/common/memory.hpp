@@ -84,6 +84,10 @@ public:
     const std::vector<u64>& dirty_pages() const noexcept { return dirty_; }
     void clear_dirty() { dirty_.clear(); }
 
+    // Monotonic counter bumped on every byte write. Lets the snapshot layer skip
+    // re-copying the page map when nothing changed since the last snapshot.
+    u64 write_gen() const noexcept { return write_gen_; }
+
     std::size_t resident_pages() const noexcept { return pages_.size(); }
 
     // Base addresses of all mapped pages, ascending (for session save / region
@@ -103,6 +107,13 @@ private:
     std::map<u64, std::shared_ptr<GuestPage>> pages_;  // page_base -> shared page
     std::map<u64, u8> perms_;                          // page_base -> permissions
     std::vector<u64> dirty_;                            // recently written pages
+    u64 write_gen_ = 0;                                 // bumped on every byte write
+
+    // One-entry read cache: sequential reads within a page (instruction fetch,
+    // scans) skip the O(log n) map lookup. Invalidated on any write/map/restore.
+    mutable u64 rd_cache_base_ = ~0ull;
+    mutable const GuestPage* rd_cache_page_ = nullptr;
+    void invalidate_rd_cache() const { rd_cache_base_ = ~0ull; rd_cache_page_ = nullptr; }
 };
 
 }  // namespace dede

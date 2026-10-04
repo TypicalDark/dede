@@ -132,6 +132,9 @@ target_link_libraries(dede PRIVATE dede_shell dede_session dede_script)
 add_executable(dede-decrypt-demo apps/decrypt_demo.cpp)
 target_link_libraries(dede-decrypt-demo PRIVATE dede_session)
 
+add_executable(dede-bench apps/bench.cpp)
+target_link_libraries(dede-bench PRIVATE dede_session)
+
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()

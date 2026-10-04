@@ -36,7 +36,8 @@ struct SessionDeps {
     std::unique_ptr<IAssembler> assembler;
     std::unique_ptr<IDecompiler> decompiler;
     std::unique_ptr<IIntrospector> introspector;
-    TimelineManager::Config timeline{};  // ring/snapshot sizing
+    ExecutionCore::BackendFactory backend;  // {} => default in-tree interpreter
+    TimelineManager::Config timeline{};     // ring/snapshot sizing
 };
 
 class AnalysisSession final : public IAnalysisEngine {

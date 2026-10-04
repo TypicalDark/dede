@@ -10,7 +10,7 @@ namespace dede {
 AnalysisSession::AnalysisSession(Arch arch) : AnalysisSession(arch, SessionDeps{}) {}
 
 AnalysisSession::AnalysisSession(Arch arch, SessionDeps deps)
-    : core_(arch), timeline_(core_, deps.timeline) {
+    : core_(arch, deps.backend), timeline_(core_, deps.timeline) {
     // Observer wiring: the core emits to the bus; the macro engine and the event
     // history subscribe.
     core_.set_event_sink(&bus_);

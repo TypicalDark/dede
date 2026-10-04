@@ -6,6 +6,7 @@
 // talk to it through the AnalysisSession Facade.
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include "dede/common/cpu_state.hpp"
@@ -22,7 +23,12 @@ namespace dede {
 
 class ExecutionCore {
 public:
-    explicit ExecutionCore(Arch arch = Arch::X86_64);
+    // Dependency injection: the backend (the central Strategy) is built by a
+    // factory that can be swapped — the in-tree interpreter by default, a
+    // Unicorn/KVM backend otherwise — so adding one needs no edit here (OCP/DIP).
+    using BackendFactory = std::function<std::unique_ptr<IExecutionBackend>(IDisassembler&)>;
+
+    explicit ExecutionCore(Arch arch = Arch::X86_64, BackendFactory backend_factory = {});
 
     // --- machine access ------------------------------------------------------
     CpuState& cpu() noexcept { return cpu_; }
@@ -69,6 +75,11 @@ private:
     std::unique_ptr<IDisassembler> disasm_;
     std::unique_ptr<MemoryProxy> proxy_;
     std::unique_ptr<IExecutionBackend> backend_;
+
+    // Snapshot reuse cache: avoids re-copying the page map on steps that write no
+    // memory (mutable because snapshot() is const but memoises).
+    mutable std::shared_ptr<const MemorySnapshot> mem_cache_;
+    mutable u64 mem_cache_gen_ = ~0ull;
 };
 
 }  // namespace dede

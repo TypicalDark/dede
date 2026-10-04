@@ -9,6 +9,8 @@
 // without seeing machine state.
 #pragma once
 
+#include <memory>
+
 #include "dede/common/cpu_state.hpp"
 #include "dede/common/memory.hpp"
 #include "dede/common/types.hpp"
@@ -22,8 +24,11 @@ public:
 
 private:
     friend class ExecutionCore;
+    // The memory image is shared: when a step doesn't touch memory, consecutive
+    // mementos reference the SAME snapshot, so capturing one is a pointer bump
+    // rather than a full page-map copy.
     CpuState cpu_{};
-    MemorySnapshot mem_{};
+    std::shared_ptr<const MemorySnapshot> mem_{};
     Tick tick_ = 0;
 };
 
