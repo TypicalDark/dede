@@ -12,7 +12,10 @@
 
 namespace dede {
 
-enum class OpKind { None, Reg, Imm, Mem };
+enum class OpKind { None, Reg, Imm, Mem, SegReg };
+
+// x86 segment registers (read by anti-VM checks via `mov ax, cs` etc.).
+enum class SegReg : u8 { CS, SS, DS, ES, FS, GS };
 
 // A memory operand of the form [base + index*scale + disp].
 struct MemOperand {
@@ -31,6 +34,9 @@ struct Operand {
     // Reg operand:
     Reg reg = Reg::Rax;
     Width width = Width::B8;
+
+    // SegReg operand:
+    SegReg seg = SegReg::CS;
 
     // Imm operand:
     i64 imm = 0;

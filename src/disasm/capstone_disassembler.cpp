@@ -94,11 +94,28 @@ bool in_group(const cs_insn& ins, u8 grp) {
     return false;
 }
 
+std::optional<SegReg> map_seg(unsigned cr) {
+    switch (cr) {
+        case X86_REG_CS: return SegReg::CS;
+        case X86_REG_SS: return SegReg::SS;
+        case X86_REG_DS: return SegReg::DS;
+        case X86_REG_ES: return SegReg::ES;
+        case X86_REG_FS: return SegReg::FS;
+        case X86_REG_GS: return SegReg::GS;
+        default: return std::nullopt;
+    }
+}
+
 Operand convert_op(const cs_x86_op& op) {
     Operand out;
     out.size = op.size;
     switch (op.type) {
         case X86_OP_REG: {
+            if (auto s = map_seg(op.reg)) {
+                out.kind = OpKind::SegReg;
+                out.seg = *s;
+                break;
+            }
             out.kind = OpKind::Reg;
             if (auto m = map_reg(op.reg)) {
                 out.reg = m->first;

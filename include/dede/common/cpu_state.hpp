@@ -15,9 +15,29 @@ namespace dede {
 // Sub-register width for a GPR access.
 enum class Width : u8 { B1 = 1, B2 = 2, B4 = 4, B8 = 8 };
 
+// x86 segment registers (selectors) plus FS/GS bases, tracked so anti-VM checks
+// that read them (`mov ax, cs`, etc.) see a plausible user-mode layout.
+enum class Seg : u8 { CS, SS, DS, ES, FS, GS, Count };
+
 class CpuState {
 public:
-    CpuState() { regs_.fill(0); }
+    CpuState() {
+        regs_.fill(0);
+        // Typical x86-64 user-mode selectors (Linux/Windows look alike here).
+        segs_[static_cast<std::size_t>(Seg::CS)] = 0x33;
+        segs_[static_cast<std::size_t>(Seg::SS)] = 0x2b;
+        segs_[static_cast<std::size_t>(Seg::DS)] = 0x2b;
+        segs_[static_cast<std::size_t>(Seg::ES)] = 0x2b;
+        segs_[static_cast<std::size_t>(Seg::FS)] = 0x53;
+        segs_[static_cast<std::size_t>(Seg::GS)] = 0x2b;
+    }
+
+    u16 seg(Seg s) const noexcept { return segs_[static_cast<std::size_t>(s)]; }
+    void set_seg(Seg s, u16 v) noexcept { segs_[static_cast<std::size_t>(s)] = v; }
+    u64 fs_base() const noexcept { return fs_base_; }
+    u64 gs_base() const noexcept { return gs_base_; }
+    void set_fs_base(u64 v) noexcept { fs_base_ = v; }
+    void set_gs_base(u64 v) noexcept { gs_base_ = v; }
 
     u64 get(Reg r) const noexcept { return regs_[idx(r)]; }
     void set(Reg r, u64 v) noexcept { regs_[idx(r)] = v; }
@@ -68,6 +88,9 @@ private:
         return static_cast<std::size_t>(r);
     }
     std::array<u64, kNumReg> regs_{};
+    std::array<u16, static_cast<std::size_t>(Seg::Count)> segs_{};
+    u64 fs_base_ = 0;
+    u64 gs_base_ = 0;
 };
 
 }  // namespace dede

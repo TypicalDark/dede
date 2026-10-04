@@ -146,9 +146,12 @@ private:
         return static_cast<Addr>(a);
     }
 
+    static Seg to_seg(SegReg s) { return static_cast<Seg>(static_cast<u8>(s)); }
+
     Result<u64> read_op(Exec& e, const Operand& op) {
         switch (op.kind) {
             case OpKind::Reg: return e.cpu.read(op.reg, op.width);
+            case OpKind::SegReg: return static_cast<u64>(e.cpu.seg(to_seg(op.seg)));
             case OpKind::Imm: return static_cast<u64>(op.imm) & mask_bytes(opsize(op));
             case OpKind::Mem: {
                 auto a = effective_addr(e, op.mem);
@@ -162,6 +165,7 @@ private:
     Result<void> write_op(Exec& e, const Operand& op, u64 v) {
         switch (op.kind) {
             case OpKind::Reg: e.cpu.write(op.reg, op.width, v); return {};
+            case OpKind::SegReg: e.cpu.set_seg(to_seg(op.seg), static_cast<u16>(v)); return {};
             case OpKind::Mem: {
                 auto a = effective_addr(e, op.mem);
                 if (!a) return a.error();

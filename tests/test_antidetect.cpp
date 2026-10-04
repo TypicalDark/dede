@@ -91,6 +91,12 @@ TEST("RDTSCP reports CPU 0 in ecx") {
     CHECK_EQ(lo32(s.read_reg(Reg::Rcx)), 0u);
 }
 
+TEST("segment register CS reads a bare-metal user selector (no divergence)") {
+    // mov eax, cs ; cmp ax, 0x33 ; sete al ; hlt   -> al == 1 on bare metal
+    auto s = run_probe({0x8C, 0xC8, 0x66, 0x83, 0xF8, 0x33, 0x0F, 0x94, 0xC0, 0xF4});
+    CHECK_EQ(lo32(s.read_reg(Reg::Rax)) & 0xff, 1u);  // cs == 0x33; previously halted as "unsupported"
+}
+
 TEST("self-modifying code: the newly written instruction executes") {
     // Escape attempt: overwrite an upcoming instruction, then run into it.
     //   0x1000: mov byte [0x100a], 0x90   ; turn the ud2 at 0x100a into a nop

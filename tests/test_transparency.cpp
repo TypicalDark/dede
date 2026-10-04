@@ -32,10 +32,28 @@ TEST("rdtsc is deterministic in the instruction count") {
     ProbeResult a = chain->handle(ProbeRequest{ProbeRequest::Kind::Rdtsc, 0, 0, 0, 100});
     ProbeResult b = chain->handle(ProbeRequest{ProbeRequest::Kind::Rdtsc, 0, 0, 0, 100});
     CHECK(a.handled);
-    CHECK_EQ(a.a, b.a);  // same tick -> same tsc (replay-safe)
+    CHECK_EQ(a.a, b.a);  // same tick -> same tsc (replay-safe), despite jitter
     CHECK_EQ(a.d, b.d);
     u64 tsc = (static_cast<u64>(a.d) << 32) | a.a;
-    CHECK_EQ(tsc, env.tsc_base + 100 * env.tsc_per_insn);
+    u64 lo = env.tsc_base + 100 * env.tsc_per_insn;
+    CHECK(tsc >= lo && tsc < lo + env.tsc_jitter);  // base cost + deterministic jitter
+
+    // Jitter makes consecutive deltas vary (defeats zero-variance checks) while
+    // the clock stays strictly monotonic.
+    u64 t0 = 0, prev = 0;
+    bool monotonic = true, varies = false;
+    for (Tick k = 1; k < 50; ++k) {
+        ProbeResult r = chain->handle(ProbeRequest{ProbeRequest::Kind::Rdtsc, 0, 0, 0, k});
+        u64 t = (static_cast<u64>(r.d) << 32) | r.a;
+        if (k > 1) {
+            u64 d = t - prev;
+            if (t <= prev) monotonic = false;
+            if (d != env.tsc_per_insn) varies = true;
+        }
+        prev = t; (void)t0;
+    }
+    CHECK(monotonic);
+    CHECK(varies);
 }
 
 TEST("vmware backdoor port is silenced") {

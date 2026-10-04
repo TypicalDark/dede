@@ -64,11 +64,20 @@ public:
     bool handle(const ProbeRequest& req, ProbeResult& out) override {
         if (req.kind != ProbeRequest::Kind::Rdtsc && req.kind != ProbeRequest::Kind::Rdtscp)
             return false;
-        u64 tsc = env_.tsc_base + req.tick * env_.tsc_per_insn;
+        u64 jitter = env_.tsc_jitter ? (splitmix(req.tick) % env_.tsc_jitter) : 0;
+        u64 tsc = env_.tsc_base + req.tick * env_.tsc_per_insn + jitter;
         out.a = tsc & 0xffffffffull;  // eax
         out.d = tsc >> 32;            // edx
         out.c = 0;                    // rdtscp: IA32_TSC_AUX (CPU 0)
         return true;
+    }
+
+private:
+    static u64 splitmix(u64 x) {
+        x += 0x9e3779b97f4a7c15ull;
+        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
+        x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
+        return x ^ (x >> 31);
     }
 
 private:

@@ -31,6 +31,10 @@ struct ForgedEnvironment {
     // would otherwise introduce.
     u64 tsc_base = 0x0000'1000'0000'0000ull;
     u64 tsc_per_insn = 30;  // ~30 cycles per retired instruction
+    // Deterministic per-tick jitter so rdtsc deltas are not a dead constant (which
+    // zero-variance / entropy checks flag). Kept < tsc_per_insn so the clock stays
+    // strictly monotonic, and a pure function of tick so replay reproduces it.
+    u64 tsc_jitter = 16;
 
     // sidt / sgdt: a believable bare-metal descriptor-table base (a low kernel
     // address rather than the high addresses VMs are famous for), defeating the
