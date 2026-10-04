@@ -115,6 +115,16 @@ void run_dynamic_checks() {
             "RunPointType::Fault breaks on the fault, fires a handler macro, and records "
             "a Fault event (time-travel visible); no SEH chain / auto-resume yet");
     }
+    // 60: pointer-encryption detection (PTR_MANGLE / EncodePointer).
+    {
+        // xor rax, fs:[0x30] ; ror rax, 0x11 ; hlt
+        auto s = fresh({0x64,0x48,0x33,0x04,0x25,0x30,0,0,0, 0x48,0xC1,0xC8,0x11, 0xF4});
+        auto f = detect(Arch::X86_64, reader_of(s), 0x1000, 8);
+        bool found = false;
+        for (const auto& x : f) if (x.category == "pointer-encryption") found = true;
+        rec(60,'D',"Pointer-encryption detection", found ? V::PASS : V::FAIL,
+            "pointer-encryption detector flags TLS-cookie xor/rotate (PTR_MANGLE/EncodePointer)");
+    }
     // 6 & 70: call graph
     {
         auto s = fresh(kLoop);
@@ -365,7 +375,6 @@ int main(int argc, char** argv) {
     rec(54,'D',"License-validation routine ID", V::PARTIAL, "strings + run points assist; not fully automated");
     rec(57,'D',"Code-integrity-check identification", V::PARTIAL, "W^X + reads-of-code detectable; dedicated detector pending");
     rec(58,'D',"Obfuscation pattern detection", V::PARTIAL, "NOP-ratio/opcode anomaly + runtime SMC; more patterns pending");
-    rec(60,'D',"Pointer-encryption detection", V::FAIL, "pattern detector not implemented");
     rec(63,'D',"Exception-handler protection detection", V::FAIL, "needs the fault/SEH model");
     rec(64,'D',"Global-state dependency detection", V::PARTIAL, "who_wrote + watchpoints");
     rec(66,'D',"Lazy-init / deferred validation", V::FAIL, "not modelled");

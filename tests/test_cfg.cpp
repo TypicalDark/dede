@@ -2,6 +2,7 @@
 #include <vector>
 
 #include "check.hpp"
+#include "dede/analysis/scan.hpp"
 #include "dede/session/analysis_session.hpp"
 
 using namespace dede;
@@ -43,6 +44,29 @@ TEST("CFG of a loop has the expected blocks and edges") {
     // DOT export is non-empty and references the blocks.
     std::string dot = g.to_dot();
     CHECK(dot.find("digraph") != std::string::npos);
+}
+
+TEST("pointer-encryption detector flags PTR_MANGLE-style mangling") {
+    // xor rax, fs:[0x30] ; ror rax, 0x11 ; hlt  (glibc pointer guard)
+    std::vector<u8> code = {0x64,0x48,0x33,0x04,0x25,0x30,0,0,0, 0x48,0xC1,0xC8,0x11, 0xF4};
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+
+    auto reader = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    auto findings = detect(Arch::X86_64, reader, 0x1000, 4);
+    bool cookie = false, guard_rotate = false;
+    for (const auto& f : findings) {
+        if (f.category == "pointer-encryption" && f.detail.find("fs:") != std::string::npos) cookie = true;
+        if (f.category == "pointer-encryption" && f.rule.find("rotate") != std::string::npos) guard_rotate = true;
+    }
+    CHECK(cookie);
+    CHECK(guard_rotate);
 }
 
 int main() { return dede::test::run_all(); }

@@ -155,6 +155,37 @@ public:
     }
 };
 
+class PointerEncryptionDetector final : public IDetector {
+public:
+    std::string name() const override { return "pointer-encryption"; }
+    void inspect(const DecodedInsn& in, std::vector<Finding>& out) const override {
+        // Pointer mangling (glibc PTR_MANGLE, Windows Encode/DecodePointer) guards a
+        // code/data pointer by combining it with a per-process/TLS cookie and
+        // rotating it. The giveaway is a xor/add/sub/rotate against a segment-
+        // relative (fs:/gs:) cookie, or a 64-bit rotate by the classic guard
+        // amount (glibc uses `ror $0x11`).
+        const bool combiner = is(in, "xor") || is(in, "add") || is(in, "sub") ||
+                              is(in, "ror") || is(in, "rol");
+        if (!combiner) return;
+        const bool tls_cookie = in.op_str.find("fs:") != std::string::npos ||
+                                in.op_str.find("gs:") != std::string::npos;
+        if (tls_cookie) {
+            // Combining a value with a TLS/segment cookie: pointer mangling
+            // (PTR_MANGLE/EncodePointer) or a stack-canary check — same primitive.
+            out.push_back({"pointer-encryption",
+                           "TLS-cookie combine (pointer mangling / stack canary)",
+                           in.addr, in.text(), "notice"});
+            return;
+        }
+        // 64-bit rotate by 0x11 — the glibc pointer-guard rotation amount.
+        if ((is(in, "ror") || is(in, "rol")) && in.operands.size() == 2 &&
+            in.operands[0].size == 8 && in.operands[1].kind == OpKind::Imm &&
+            in.operands[1].imm == 0x11)
+            out.push_back({"pointer-encryption", "pointer-guard rotate (ror/rol $0x11)",
+                           in.addr, in.text(), "info"});
+    }
+};
+
 const std::vector<std::unique_ptr<IDetector>>& detectors() {
     static std::vector<std::unique_ptr<IDetector>> d = [] {
         std::vector<std::unique_ptr<IDetector>> v;
@@ -163,6 +194,7 @@ const std::vector<std::unique_ptr<IDetector>>& detectors() {
         v.push_back(std::make_unique<AntiDebugDetector>());
         v.push_back(std::make_unique<CryptoDetector>());
         v.push_back(std::make_unique<VmDispatchDetector>());
+        v.push_back(std::make_unique<PointerEncryptionDetector>());
         return v;
     }();
     return d;
