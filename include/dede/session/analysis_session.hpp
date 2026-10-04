@@ -123,6 +123,11 @@ public:
     Result<void> load_session(const std::string& path) override;
     std::vector<Region> memory_map() const override;
 
+    void capture_enable(bool on) override { capture_.set_enabled(on); }
+    void capture_clear() override { capture_.clear(); }
+    const std::vector<CaptureEntry>& capture_log() const override { return capture_.entries(); }
+    CaptureTap& capture() { return capture_; }  // for export
+
     // --- introspection & timeline (UI-facing) --------------------------------
     IIntrospector& introspector() override { return *introspector_; }
     TimelineStats timeline_stats() const override {
@@ -156,6 +161,7 @@ private:
 
     SymbolTable symbols_;
     EventHistory history_;
+    CaptureTap capture_;
 
     const ISessionState* state_ = &session_state(Phase::Idle);
 };

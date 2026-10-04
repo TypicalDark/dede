@@ -10,12 +10,14 @@ namespace dede {
 AnalysisSession::AnalysisSession(Arch arch) : AnalysisSession(arch, SessionDeps{}) {}
 
 AnalysisSession::AnalysisSession(Arch arch, SessionDeps deps)
-    : core_(arch, deps.backend), timeline_(core_, deps.timeline) {
-    // Observer wiring: the core emits to the bus; the macro engine and the event
-    // history subscribe.
+    : core_(arch, deps.backend), timeline_(core_, deps.timeline),
+      capture_([this](Reg r) { return core_.cpu().get(r); }) {
+    // Observer wiring: the core emits to the bus; the macro engine, the event
+    // history, and the capture tap subscribe.
     core_.set_event_sink(&bus_);
     bus_.subscribe(&macros_);
     bus_.subscribe(&history_);
+    bus_.subscribe(&capture_);
     macros_.bind_controller(this);
 
     // Dependency injection with production defaults.

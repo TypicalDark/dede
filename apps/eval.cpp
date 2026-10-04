@@ -217,6 +217,13 @@ void run_dynamic_checks() {
         s.bind_macro(id,m); s.run();
         rec(43,'C',"API/function hooking + argument modify", s.read_reg(Reg::Rcx)==0?V::PASS:V::PARTIAL, "address run point + mutating macro rewrote rcx (hook+modify, injected for replay)");
     }
+    // 42: syscall interception + logging (capture layer)
+    {
+        auto s = fresh({0x48,0xC7,0xC0,0x01,0,0,0, 0x48,0xC7,0xC7,0x02,0,0,0, 0x0F,0x05, 0xF4}); // mov rax,1;mov rdi,2;syscall;hlt
+        s.capture_enable(true); s.run();
+        bool ok=false; for (const auto& e : s.capture_log()) if (e.name=="write" && e.args[0]==2) ok=true;
+        rec(42,'C',"Syscall interception + logging", ok?V::PASS:V::FAIL, "capture tap dissected write(fd=2,...); MITM via Syscall run point (see NETWORK_CAPTURE.md)");
+    }
     // 9: data-flow / who-wrote
     {
         auto s = fresh({0x48,0xC7,0xC0,0x11,0,0,0, 0x48,0x89,0x04,0x25,0,0,0x07,0, 0xF4});
@@ -258,7 +265,6 @@ int main(int argc, char** argv) {
     rec(37,'C',"Call tracing / call stack", V::PARTIAL, "call events traced; heuristic unwind not yet implemented");
     rec(38,'C',"Return-address / stack integrity", V::PARTIAL, "stack visible; no automatic corruption detector yet");
     rec(40,'C',"Break on exception", V::FAIL, "fault-delivery channel is the top transparency-roadmap item");
-    rec(42,'C',"Syscall interception + logging", V::PARTIAL, "Syscall events emitted + traced; capture/MITM layer in progress (see NETWORK_CAPTURE.md)");
     rec(44,'C',"Memory allocation tracking", V::NA, "no heap/allocator model (flat image)");
     rec(45,'C',"Multi-threaded debugging", V::NA, "single-threaded deterministic core by design");
     rec(47,'C',"Performance profiling", V::PARTIAL, "tick counts + opcode histogram; no per-function timing yet");

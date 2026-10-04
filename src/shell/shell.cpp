@@ -114,6 +114,7 @@ bool Shell::execute(const std::string& line) {
             "  entropy <addr> <len>     Shannon entropy of a region\n"
             "  opcodes [addr] [n]       instruction-frequency histogram\n"
             "  strings <addr> <len>     extract ASCII strings\n"
+            "  capture on|off|list      capture guest syscalls/probes (Wireshark-style)\n"
             "  step [n] | s             step n instructions\n"
             "  back [n] | sb            step back n instructions (time-travel)\n"
             "  run | c                  run until breakpoint/halt\n"
@@ -497,6 +498,21 @@ bool Shell::execute(const std::string& line) {
         for (const auto& n : g.funcs) out_ << "  sub_" << std::hex << n.entry << std::dec
                                            << annotate(n.entry) << " (" << n.blocks << " blocks)\n";
         for (const auto& c : g.calls) out_ << "  " << hex(c.first) << " -> " << hex(c.second) << "\n";
+        return true;
+    }
+
+    if (cmd == "capture" || cmd == "cap") {
+        std::string sub = tok.size() >= 2 ? tok[1] : "list";
+        if (sub == "on") { s_.capture_enable(true); out_ << "capture ON\n"; }
+        else if (sub == "off") { s_.capture_enable(false); out_ << "capture OFF\n"; }
+        else if (sub == "clear") { s_.capture_clear(); out_ << "capture cleared\n"; }
+        else if (sub == "list") {
+            for (const auto& e : s_.capture_log())
+                out_ << "  #" << e.seq << " [t=" << e.tick << "] " << hex(e.pc) << "  " << e.summary << "\n";
+            out_ << s_.capture_log().size() << " transaction(s)\n";
+        } else {
+            out_ << "usage: capture on|off|clear|list\n";
+        }
         return true;
     }
 

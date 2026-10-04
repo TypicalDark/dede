@@ -18,6 +18,7 @@
 #include "dede/macro/controller.hpp"          // IDebugController
 #include "dede/macro/event_bus.hpp"           // IEventObserver
 #include "dede/macro/run_point.hpp"           // RunPoint, MacroPtr, CommandPtr
+#include "dede/session/capture.hpp"           // CaptureEntry
 #include "dede/session/event_history.hpp"     // EventHistory
 #include "dede/session/session_state.hpp"     // Phase
 #include "dede/session/symbol_table.hpp"      // SymbolTable
@@ -97,6 +98,11 @@ public:
     virtual Result<void> load_session(const std::string& path) = 0;
     // Mapped memory regions (coalesced contiguous same-perm pages), ascending.
     virtual std::vector<Region> memory_map() const = 0;
+
+    // --- capture / MITM (the Wireshark/Charles analog) -----------------------
+    virtual void capture_enable(bool on) = 0;
+    virtual void capture_clear() = 0;
+    virtual const std::vector<CaptureEntry>& capture_log() const = 0;
 
     // --- introspection & timeline -------------------------------------------
     virtual IIntrospector& introspector() = 0;

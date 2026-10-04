@@ -13,6 +13,7 @@ const char* to_string(RunPointType t) noexcept {
         case RunPointType::MemWrite: return "mem-write";
         case RunPointType::WrittenThenExec: return "written-then-exec";
         case RunPointType::Condition: return "condition";
+        case RunPointType::Syscall: return "syscall";
     }
     return "?";
 }
@@ -66,6 +67,9 @@ bool MacroEngine::matches(const RunPoint& rp, const Event& e) const {
         case RunPointType::Condition:
             return e.kind == EventKind::Step && ctrl_ && rp.condition &&
                    rp.condition->evaluate(*ctrl_);
+        case RunPointType::Syscall:
+            // rp.address reused as an optional syscall-number filter (0 = any).
+            return e.kind == EventKind::Syscall && (rp.address == 0 || e.value == rp.address);
     }
     return false;
 }

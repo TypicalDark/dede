@@ -40,7 +40,8 @@ enum class RunPointType {
     MemRead,          // a data read at an address
     MemWrite,         // a data write at an address
     WrittenThenExec,  // a page written as data is now being executed (W^X)
-    Condition         // a register predicate holds
+    Condition,        // a register predicate holds
+    Syscall           // guest executed a syscall (optionally a specific number)
 };
 
 const char* to_string(RunPointType t) noexcept;

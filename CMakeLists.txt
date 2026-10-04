@@ -87,7 +87,7 @@ if(DEDE_WITH_LIBVMI)
 endif()
 
 dede_library(dede_session
-  SRCS src/session/session_state.cpp src/session/analysis_session.cpp
+  SRCS src/session/session_state.cpp src/session/analysis_session.cpp src/session/capture.cpp
   DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection dede_analysis)
 
 dede_library(dede_script
@@ -141,7 +141,7 @@ target_link_libraries(dede-eval PRIVATE dede_session dede_analysis)
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)
