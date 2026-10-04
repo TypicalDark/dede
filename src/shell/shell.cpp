@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "dede/analysis/arch_view.hpp"
+#include "dede/analysis/scan.hpp"
 
 namespace dede {
 namespace {
@@ -108,6 +109,11 @@ bool Shell::execute(const std::string& line) {
             "  dis [addr] [n]           disassemble n instrs (default: at rip)\n"
             "  decompile <addr> <len>   decompile a byte range\n"
             "  cfg [addr] [dot]         control-flow graph (code flow)\n"
+            "  callgraph [addr]         program call graph\n"
+            "  scan [addr] [n]          detect anti-vm/anti-debug/timing/crypto + complexity\n"
+            "  entropy <addr> <len>     Shannon entropy of a region\n"
+            "  opcodes [addr] [n]       instruction-frequency histogram\n"
+            "  strings <addr> <len>     extract ASCII strings\n"
             "  step [n] | s             step n instructions\n"
             "  back [n] | sb            step back n instructions (time-travel)\n"
             "  run | c                  run until breakpoint/halt\n"
@@ -437,6 +443,60 @@ bool Shell::execute(const std::string& line) {
         if (tok.size() < 2) { out_ << "usage: load <path>\n"; return true; }
         auto r = s_.load_session(tok[1]);
         out_ << (r ? "loaded " + tok[1] + "\n" : "error: " + r.message() + "\n");
+        return true;
+    }
+
+    // A ByteReader over the live guest image for the analysis functions.
+    auto reader = [this](Addr a) -> std::optional<u8> {
+        auto b = s_.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+
+    if (cmd == "entropy") {
+        if (tok.size() < 3) { out_ << "usage: entropy <addr> <len>\n"; return true; }
+        double h = shannon_entropy(reader, arg_u64(1, 0), arg_u64(2, 0));
+        out_ << "entropy = " << h << " bits/byte "
+             << (h > 7.0 ? "(high — encrypted/compressed)" : h < 1.0 ? "(very low)" : "(normal)") << "\n";
+        return true;
+    }
+    if (cmd == "opcodes") {
+        Addr a = tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip();
+        auto h = opcode_histogram(s_.arch(), reader, a, arg_u64(tok.size() >= 3 ? 2 : 99, 200));
+        u64 total = 0, nops = 0;
+        for (auto& [m, c] : h) { total += c; if (m == "nop") nops = c; }
+        for (std::size_t i = 0; i < h.size() && i < 15; ++i)
+            out_ << "  " << std::setw(8) << std::left << h[i].first << " " << h[i].second << "\n";
+        if (total && nops * 10 > total) out_ << "  ! high NOP ratio (" << nops << "/" << total << ") — padding/obfuscation?\n";
+        return true;
+    }
+    if (cmd == "strings") {
+        if (tok.size() < 3) { out_ << "usage: strings <addr> <len> [minlen]\n"; return true; }
+        auto ss = extract_strings(reader, arg_u64(1, 0), arg_u64(2, 0), arg_u64(3, 4));
+        std::string filt = tok.size() >= 5 ? tok[4] : "";
+        for (const auto& s : ss)
+            if (filt.empty() || s.text.find(filt) != std::string::npos)
+                out_ << "  " << hex(s.addr) << "  \"" << s.text << "\"\n";
+        return true;
+    }
+    if (cmd == "scan") {
+        Addr a = tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip();
+        auto f = detect(s_.arch(), reader, a, arg_u64(tok.size() >= 3 ? 2 : 99, 400));
+        out_ << f.size() << " finding(s) from " << hex(a) << ":\n";
+        for (const auto& x : f)
+            out_ << "  [" << x.category << "/" << x.severity << "] " << hex(x.addr) << "  " << x.rule
+                 << "  (" << x.detail << ")\n";
+        Cfg g = s_.build_cfg(a);
+        out_ << "cyclomatic complexity of function @ " << hex(a) << " = " << cyclomatic_complexity(g) << "\n";
+        return true;
+    }
+    if (cmd == "callgraph" || cmd == "cg") {
+        Addr a = tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip();
+        auto g = build_call_graph(s_.arch(), reader, a);
+        out_ << g.funcs.size() << " function(s), " << g.calls.size() << " call edge(s):\n";
+        for (const auto& n : g.funcs) out_ << "  sub_" << std::hex << n.entry << std::dec
+                                           << annotate(n.entry) << " (" << n.blocks << " blocks)\n";
+        for (const auto& c : g.calls) out_ << "  " << hex(c.first) << " -> " << hex(c.second) << "\n";
         return true;
     }
 

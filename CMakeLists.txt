@@ -79,7 +79,7 @@ if(DEDE_WITH_GHIDRA)
   target_compile_definitions(dede_decompiler PUBLIC DEDE_WITH_GHIDRA)
 endif()
 
-dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp DEPS dede_disasm)
+dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp src/analysis/scan.cpp DEPS dede_disasm)
 
 dede_library(dede_introspection SRCS src/introspection/introspector.cpp DEPS dede_common)
 if(DEDE_WITH_LIBVMI)
@@ -135,6 +135,9 @@ target_link_libraries(dede-decrypt-demo PRIVATE dede_session)
 add_executable(dede-bench apps/bench.cpp)
 target_link_libraries(dede-bench PRIVATE dede_session)
 
+add_executable(dede-eval apps/eval.cpp)
+target_link_libraries(dede-eval PRIVATE dede_session dede_analysis)
+
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
@@ -144,4 +147,7 @@ if(DEDE_BUILD_TESTS)
     target_link_libraries(${t} PRIVATE dede_session)
     add_test(NAME ${t} COMMAND ${t})
   endforeach()
+  # Guard the effectiveness harness and its hot-path checks: it must run all
+  # dynamic engine checks without crashing and exit 0.
+  add_test(NAME effectiveness COMMAND dede-eval ${CMAKE_BINARY_DIR}/effectiveness-report.md)
 endif()
