@@ -99,6 +99,32 @@ endif()
 
 dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script)
 
+# --- Vulkan + Dear ImGui GUI (optional) --------------------------------------
+option(DEDE_WITH_GUI "Build the Vulkan/ImGui desktop GUI (needs libvulkan-dev, libglfw3-dev, and third_party/imgui)" OFF)
+if(DEDE_WITH_GUI)
+  set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
+  if(NOT EXISTS ${IMGUI_DIR}/imgui.cpp)
+    message(FATAL_ERROR "DEDE_WITH_GUI=ON but ${IMGUI_DIR} is missing. Run ./build.sh --with-gui (it fetches Dear ImGui) or clone it there.")
+  endif()
+  find_package(Vulkan REQUIRED)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(GLFW3 REQUIRED glfw3)
+  endif()
+
+  add_library(dede_imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
+  target_include_directories(dede_imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${GLFW3_INCLUDE_DIRS})
+  target_link_libraries(dede_imgui PUBLIC Vulkan::Vulkan ${GLFW3_LIBRARIES})
+
+  dede_library(dede_gui SRCS src/gui/workspace.cpp DEPS dede_session dede_script dede_shell dede_analysis dede_imgui)
+
+  add_executable(dede-gui apps/dede_gui.cpp)
+  target_link_libraries(dede-gui PRIVATE dede_gui dede_imgui dede_shell dede_session dede_script
+                                         Vulkan::Vulkan ${GLFW3_LIBRARIES})
+endif()
+
 # --- executables -------------------------------------------------------------
 add_executable(dede apps/dede_main.cpp)
 target_link_libraries(dede PRIVATE dede_shell dede_session dede_script)
