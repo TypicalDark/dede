@@ -86,6 +86,15 @@ public:
 
     std::size_t resident_pages() const noexcept { return pages_.size(); }
 
+    // Base addresses of all mapped pages, ascending (for session save / region
+    // enumeration).
+    std::vector<u64> mapped_pages() const {
+        std::vector<u64> out;
+        out.reserve(pages_.size());
+        for (const auto& [base, _] : pages_) out.push_back(base);
+        return out;
+    }
+
 private:
     GuestPage* page_for_write(Addr a);
     const GuestPage* page_for_read(Addr a) const;

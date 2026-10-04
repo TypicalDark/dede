@@ -182,26 +182,32 @@ private:
         return static_cast<Addr>(v.value());
     }
 
-    bool cond(const std::string& m, const CpuState& c) {
+    // Evaluate an x86 condition code by its suffix (the part after j/set/cmov),
+    // so jcc, setcc, and cmovcc all share one table.
+    bool eval_cc(const std::string& cc, const CpuState& c) {
         bool zf = c.flag(flags::ZF), cf = c.flag(flags::CF), sf = c.flag(flags::SF);
         bool of = c.flag(flags::OF), pf = c.flag(flags::PF);
-        if (m == "je" || m == "jz") return zf;
-        if (m == "jne" || m == "jnz") return !zf;
-        if (m == "js") return sf;
-        if (m == "jns") return !sf;
-        if (m == "jo") return of;
-        if (m == "jno") return !of;
-        if (m == "jp" || m == "jpe") return pf;
-        if (m == "jnp" || m == "jpo") return !pf;
-        if (m == "jb" || m == "jc" || m == "jnae") return cf;
-        if (m == "jae" || m == "jnc" || m == "jnb") return !cf;
-        if (m == "jbe" || m == "jna") return cf || zf;
-        if (m == "ja" || m == "jnbe") return !cf && !zf;
-        if (m == "jl" || m == "jnge") return sf != of;
-        if (m == "jge" || m == "jnl") return sf == of;
-        if (m == "jle" || m == "jng") return zf || (sf != of);
-        if (m == "jg" || m == "jnle") return !zf && (sf == of);
+        if (cc == "e" || cc == "z") return zf;
+        if (cc == "ne" || cc == "nz") return !zf;
+        if (cc == "s") return sf;
+        if (cc == "ns") return !sf;
+        if (cc == "o") return of;
+        if (cc == "no") return !of;
+        if (cc == "p" || cc == "pe") return pf;
+        if (cc == "np" || cc == "po") return !pf;
+        if (cc == "b" || cc == "c" || cc == "nae") return cf;
+        if (cc == "ae" || cc == "nc" || cc == "nb") return !cf;
+        if (cc == "be" || cc == "na") return cf || zf;
+        if (cc == "a" || cc == "nbe") return !cf && !zf;
+        if (cc == "l" || cc == "nge") return sf != of;
+        if (cc == "ge" || cc == "nl") return sf == of;
+        if (cc == "le" || cc == "ng") return zf || (sf != of);
+        if (cc == "g" || cc == "nle") return !zf && (sf == of);
         return false;
+    }
+
+    bool cond(const std::string& m, const CpuState& c) {
+        return m.size() > 1 && eval_cc(m.substr(1), c);  // strip the leading 'j'
     }
 
     // --- the dispatch table --------------------------------------------------
@@ -313,6 +319,66 @@ private:
         if (m == "int") {
             e.sink.emit(Event{EventKind::Syscall, e.in.addr, 0,
                               ops.empty() ? 0 : static_cast<u64>(ops[0].imm), 0, e.tick, "int"});
+            return ok();
+        }
+        if (m == "rdtscp") return do_rdtsc(e, /*p=*/true);
+
+        // Anti-analysis probes the transparency layer forges -----------------
+        if (m == "sidt") return store_dtr(e, ProbeRequest::Kind::Sidt);
+        if (m == "sgdt") return store_dtr(e, ProbeRequest::Kind::Sgdt);
+        if (m == "sldt") return store_status(e, ProbeRequest::Kind::Sldt);
+        if (m == "str")  return store_status(e, ProbeRequest::Kind::Str);
+        if (m == "smsw") return store_status(e, ProbeRequest::Kind::Smsw);
+        if (m == "in")   return do_in(e);
+        if (m == "out")  return do_out(e);
+
+        // Flags / conditionals / misc ----------------------------------------
+        if (m == "pushfq" || m == "pushf") {
+            unsigned sz = (m == "pushfq") ? 8 : 2;
+            u64 sp = e.cpu.get(Reg::Rsp) - sz;
+            e.cpu.set(Reg::Rsp, sp);
+            if (auto r = e.mem.write(sp, sz, e.cpu.rflags()); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+            return ok();
+        }
+        if (m == "popfq" || m == "popf") {
+            unsigned sz = (m == "popfq") ? 8 : 2;
+            u64 sp = e.cpu.get(Reg::Rsp);
+            auto v = e.mem.read(sp, sz);
+            if (!v) return fault(e.sink, e.in.addr, e.tick, v.message());
+            e.cpu.set(Reg::Rsp, sp + sz);
+            // We never act on TF, so a sample cannot detect single-stepping via it.
+            e.cpu.set_rflags(v.value());
+            return ok();
+        }
+        if (m == "bt") return do_bt(e);
+        if (m.rfind("set", 0) == 0 && m.size() > 3) {  // setcc r/m8
+            bool c = eval_cc(m.substr(3), e.cpu);
+            if (auto r = write_op(e, ops.at(0), c ? 1 : 0); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+            return ok();
+        }
+        if (m.rfind("cmov", 0) == 0 && m.size() > 4) {  // cmovcc dst, src
+            if (eval_cc(m.substr(4), e.cpu)) {
+                auto s = read_op(e, ops.at(1));
+                if (!s) return fault(e.sink, e.in.addr, e.tick, s.message());
+                if (auto r = write_op(e, ops[0], s.value()); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+            }
+            return ok();
+        }
+        if (m == "rdrand" || m == "rdseed") {
+            // Deterministic by construction so replay is exact; CF=1 (success).
+            u64 x = e.tick + 0x9e3779b97f4a7c15ull;
+            x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
+            x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
+            x ^= x >> 31;
+            if (auto r = write_op(e, ops.at(0), x); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+            e.cpu.set_flag(flags::CF, true);
+            return ok();
+        }
+        // Serialising / hint instructions with no architectural state effect.
+        if (m == "lfence" || m == "mfence" || m == "sfence" || m == "pause" ||
+            m == "cpuid_" /*never*/ || m == "clflush" || m == "clflushopt" ||
+            m == "prefetch" || m == "prefetcht0" || m == "prefetcht1" ||
+            m == "prefetcht2" || m == "prefetchnta" || m == "endbr64" || m == "endbr32") {
             return ok();
         }
 
@@ -466,18 +532,80 @@ private:
         return ok();
     }
 
-    StepOutcome do_rdtsc(Exec& e) {
-        ProbeResult pr = e.tr.handle(ProbeRequest{ProbeRequest::Kind::Rdtsc, 0, 0, 0, e.tick});
-        u64 lo, hi;
+    StepOutcome do_rdtsc(Exec& e, bool p = false) {
+        auto kind = p ? ProbeRequest::Kind::Rdtscp : ProbeRequest::Kind::Rdtsc;
+        ProbeResult pr = e.tr.handle(ProbeRequest{kind, 0, 0, 0, e.tick});
+        u64 lo, hi, aux = 0;
         if (pr.handled) {
-            lo = pr.a; hi = pr.d;
+            lo = pr.a; hi = pr.d; aux = pr.c;
         } else {
             u64 tsc = e.tick;  // deterministic by construction => replay-safe
             lo = tsc & 0xffffffff; hi = tsc >> 32;
         }
         e.cpu.write(Reg::Rax, Width::B4, lo);
         e.cpu.write(Reg::Rdx, Width::B4, hi);
-        e.sink.emit(Event{EventKind::Rdtsc, e.in.addr, 0, 0, 0, e.tick, "rdtsc"});
+        if (p) e.cpu.write(Reg::Rcx, Width::B4, aux);  // rdtscp also sets ecx
+        e.sink.emit(Event{EventKind::Rdtsc, e.in.addr, 0, 0, 0, e.tick, p ? "rdtscp" : "rdtsc"});
+        return ok();
+    }
+
+    // sidt/sgdt: store a 2-byte limit + 8-byte base (m16&64) to the destination.
+    StepOutcome store_dtr(Exec& e, ProbeRequest::Kind kind) {
+        auto& op = e.in.operands.at(0);
+        if (op.kind != OpKind::Mem) return unsupported(e.sink, e.in.addr, e.tick, "sidt/sgdt needs a memory operand");
+        auto a = effective_addr(e, op.mem);
+        if (!a) return fault(e.sink, e.in.addr, e.tick, a.message());
+        ProbeResult pr = e.tr.handle(ProbeRequest{kind, 0, 0, 0, e.tick});
+        u16 limit = pr.handled ? static_cast<u16>(pr.a) : 0x0fff;
+        u64 base = pr.handled ? ((pr.c << 32) | (pr.b & 0xffffffffull)) : 0xfffff80000000000ull;
+        if (auto r = e.mem.write(a.value(), 2, limit); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+        if (auto r = e.mem.write(a.value() + 2, 8, base); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+        return ok();
+    }
+
+    // sldt/str/smsw: store a forged selector / machine-status word. Even with no
+    // transparency chain, fall back to bare-metal-looking defaults.
+    StepOutcome store_status(Exec& e, ProbeRequest::Kind kind) {
+        ProbeResult pr = e.tr.handle(ProbeRequest{kind, 0, 0, 0, e.tick});
+        u64 v;
+        if (pr.handled) {
+            v = pr.a;
+        } else {
+            v = (kind == ProbeRequest::Kind::Str)    ? 0x40
+              : (kind == ProbeRequest::Kind::Smsw)   ? 0x80050033ull
+              : 0;  // sldt
+        }
+        if (auto r = write_op(e, e.in.operands.at(0), v); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+        return ok();
+    }
+
+    StepOutcome do_in(Exec& e) {
+        auto& ops = e.in.operands;
+        u64 port = (ops.size() >= 2) ? ((ops[1].kind == OpKind::Imm) ? static_cast<u64>(ops[1].imm)
+                                                                     : e.cpu.get(Reg::Rdx) & 0xffff)
+                                     : (e.cpu.get(Reg::Rdx) & 0xffff);
+        ProbeResult pr = e.tr.handle(ProbeRequest{ProbeRequest::Kind::IoIn, 0, 0, port, e.tick});
+        if (auto r = write_op(e, ops.at(0), pr.handled ? pr.a : 0); !r)
+            return fault(e.sink, e.in.addr, e.tick, r.message());
+        return ok();
+    }
+
+    StepOutcome do_out(Exec& e) {
+        // Writes to a port: consulted for side effects only; nothing to store back.
+        e.tr.handle(ProbeRequest{ProbeRequest::Kind::IoOut, 0, 0, e.cpu.get(Reg::Rdx) & 0xffff, e.tick});
+        return ok();
+    }
+
+    // bt r/m, bit : set CF to the selected bit (no write-back).
+    StepOutcome do_bt(Exec& e) {
+        auto& ops = e.in.operands;
+        unsigned bits = opsize(ops.at(0)) * 8;
+        auto base = read_op(e, ops[0]);
+        auto idx = read_op(e, ops.at(1));
+        if (!base) return fault(e.sink, e.in.addr, e.tick, base.message());
+        if (!idx) return fault(e.sink, e.in.addr, e.tick, idx.message());
+        unsigned bit = static_cast<unsigned>(idx.value()) % (bits ? bits : 64);
+        e.cpu.set_flag(flags::CF, ((base.value() >> bit) & 1) != 0);
         return ok();
     }
 

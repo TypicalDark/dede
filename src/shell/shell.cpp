@@ -33,7 +33,35 @@ std::string hex(u64 v) {
     return o.str();
 }
 
+// Parse a needle for `find`: a quoted "string" or a run of hex byte pairs.
+std::vector<u8> parse_needle(const std::vector<std::string>& tok, std::size_t from) {
+    std::vector<u8> out;
+    if (from >= tok.size()) return out;
+    const std::string& first = tok[from];
+    if (!first.empty() && first.front() == '"') {
+        // reassemble quoted string across tokens
+        std::string s;
+        for (std::size_t i = from; i < tok.size(); ++i) s += (i > from ? " " : "") + tok[i];
+        if (s.size() >= 2 && s.front() == '"' && s.back() == '"') s = s.substr(1, s.size() - 2);
+        for (char c : s) out.push_back(static_cast<u8>(c));
+        return out;
+    }
+    for (std::size_t i = from; i < tok.size(); ++i) {
+        const std::string& h = tok[i];
+        for (std::size_t j = 0; j + 1 < h.size(); j += 2) {
+            try { out.push_back(static_cast<u8>(std::stoul(h.substr(j, 2), nullptr, 16))); }
+            catch (...) {}
+        }
+    }
+    return out;
+}
+
 }  // namespace
+
+std::string Shell::annotate(Addr a) const {
+    if (auto d = s_.symbols().describe(a)) return " <" + *d + ">";
+    return {};
+}
 
 void Shell::TraceObserver::on_event(const Event& e) {
     if (!on_) return;
@@ -52,6 +80,14 @@ Shell::Shell(IAnalysisEngine& engine, IScriptEngine& script, std::ostream& out)
 bool Shell::execute(const std::string& line) {
     auto tok = tokenize(line);
     if (tok.empty()) return true;
+    if (!line.empty()) cmd_history_.push_back(line);
+
+    // Alias expansion: replace a leading alias with its definition, keeping args.
+    if (auto it = aliases_.find(tok[0]); it != aliases_.end()) {
+        std::string expanded = it->second;
+        for (std::size_t i = 1; i < tok.size(); ++i) expanded += " " + tok[i];
+        return execute(expanded);
+    }
     const std::string& cmd = tok[0];
     auto arg_u64 = [&](std::size_t i, u64 def) -> u64 {
         u64 v = def;
@@ -82,6 +118,14 @@ bool Shell::execute(const std::string& line) {
             "  patch <addr> <asm...>    assemble and patch in place\n"
             "  record start|stop [name] record a macro\n"
             "  trace on|off             live event trace\n"
+            "  sym add <addr> <name>    name an address (shown in dis/stack)\n"
+            "  find <start> <len> X     search memory (hex bytes or \"string\")\n"
+            "  stack [n]                telescope the stack\n"
+            "  watch <addr>             break on write to an address\n"
+            "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
+            "  history [n]              recent execution events\n"
+            "  save/load <path>         save or restore a session\n"
+            "  alias <name> <cmd...>    define a command alias\n"
             "  lua <code>               evaluate script\n"
             "  quit                     exit\n";
         return true;
@@ -136,8 +180,11 @@ bool Shell::execute(const std::string& line) {
         u64 addr = tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip();
         u64 n = arg_u64(tok.size() >= 3 ? 2 : 99, 10);
         for (const auto& in : s_.disassemble(addr, n)) {
-            out_ << (in.addr == s_.rip() ? "=> " : "   ") << hex(in.addr) << ":  "
-                 << in.text() << "\n";
+            bool is_bp = false;
+            for (const auto& rp : s_.run_points())
+                if (rp.type == RunPointType::Address && rp.address == in.addr) is_bp = true;
+            out_ << (in.addr == s_.rip() ? "=> " : (is_bp ? " * " : "   ")) << hex(in.addr)
+                 << annotate(in.addr) << ":  " << in.text() << "\n";
         }
         return true;
     }
@@ -245,7 +292,7 @@ bool Shell::execute(const std::string& line) {
 
     if (cmd == "where" || cmd == "w") {
         auto ins = s_.disassemble(s_.rip(), 1);
-        out_ << "=> " << hex(s_.rip()) << ":  "
+        out_ << "=> " << hex(s_.rip()) << annotate(s_.rip()) << ":  "
              << (ins.empty() ? "(unmapped)" : ins[0].text()) << "   [tick " << s_.now() << "]\n";
         return true;
     }
@@ -286,6 +333,98 @@ bool Shell::execute(const std::string& line) {
     if (cmd == "trace") {
         trace_on_ = (tok.size() >= 2 && tok[1] == "on");
         out_ << "trace " << (trace_on_ ? "ON" : "OFF") << "\n";
+        return true;
+    }
+
+    if (cmd == "sym") {
+        if (tok.size() >= 4 && tok[1] == "add") {
+            s_.symbols().add(arg_u64(2, 0), tok[3]);
+            out_ << "symbol " << tok[3] << " @ " << hex(arg_u64(2, 0)) << "\n";
+        } else if (tok.size() >= 3 && tok[1] == "del") {
+            s_.symbols().remove(arg_u64(2, 0));
+            out_ << "removed\n";
+        } else {
+            for (const auto& [a, n] : s_.symbols().all()) out_ << "  " << hex(a) << "  " << n << "\n";
+        }
+        return true;
+    }
+
+    if (cmd == "find") {
+        if (tok.size() < 4) { out_ << "usage: find <start> <len> <hexbytes | \"string\">\n"; return true; }
+        auto needle = parse_needle(tok, 3);
+        if (needle.empty()) { out_ << "empty needle\n"; return true; }
+        auto hits = s_.search(arg_u64(1, 0), arg_u64(2, 0), needle);
+        out_ << hits.size() << " hit(s)\n";
+        for (std::size_t i = 0; i < hits.size() && i < 32; ++i)
+            out_ << "  " << hex(hits[i]) << annotate(hits[i]) << "\n";
+        return true;
+    }
+
+    if (cmd == "stack") {
+        u64 n = arg_u64(1, 8), sp = s_.read_reg(Reg::Rsp);
+        for (u64 i = 0; i < n; ++i) {
+            Addr at = sp + i * 8;
+            auto v = s_.read_mem(at, 8);
+            out_ << "  " << hex(at) << (at == sp ? " <- rsp" : "       ") << " : "
+                 << (v ? hex(v.value()) : "????") << (v ? annotate(v.value()) : "") << "\n";
+        }
+        return true;
+    }
+
+    if (cmd == "watch") {
+        if (tok.size() < 2) { out_ << "usage: watch <addr>\n"; return true; }
+        RunPoint rp;
+        rp.type = RunPointType::MemWrite;
+        rp.address = arg_u64(1, 0);
+        rp.pause = true;
+        rp.label = "watch@" + hex(arg_u64(1, 0));
+        out_ << "watchpoint #" << s_.add_run_point(std::move(rp)) << " on write to " << hex(arg_u64(1, 0)) << "\n";
+        return true;
+    }
+
+    if (cmd == "who") {
+        if (tok.size() < 2) { out_ << "usage: who <addr> [size]\n"; return true; }
+        auto w = s_.who_wrote(arg_u64(1, 0), static_cast<unsigned>(arg_u64(2, 1)));
+        if (w) out_ << "last written by instruction at " << hex(w->pc) << annotate(w->pc)
+                    << " at tick " << w->tick << " (value " << hex(w->value) << ")\n";
+        else out_ << "no recorded write to that address in the event window\n";
+        return true;
+    }
+
+    if (cmd == "history" || cmd == "hist") {
+        const auto& ev = s_.history().events();
+        u64 n = arg_u64(1, 20);
+        std::size_t start = ev.size() > n ? ev.size() - n : 0;
+        for (std::size_t i = start; i < ev.size(); ++i)
+            out_ << "  [t=" << ev[i].tick << "] " << to_string(ev[i].kind) << " @ " << hex(ev[i].pc)
+                 << (ev[i].kind == EventKind::MemWrite || ev[i].kind == EventKind::MemRead
+                         ? " " + hex(ev[i].address) : "")
+                 << "\n";
+        return true;
+    }
+
+    if (cmd == "save") {
+        if (tok.size() < 2) { out_ << "usage: save <path>\n"; return true; }
+        auto r = s_.save_session(tok[1]);
+        out_ << (r ? "saved to " + tok[1] + "\n" : "error: " + r.message() + "\n");
+        return true;
+    }
+    if (cmd == "load") {
+        if (tok.size() < 2) { out_ << "usage: load <path>\n"; return true; }
+        auto r = s_.load_session(tok[1]);
+        out_ << (r ? "loaded " + tok[1] + "\n" : "error: " + r.message() + "\n");
+        return true;
+    }
+
+    if (cmd == "alias") {
+        if (tok.size() >= 3) {
+            std::string def = tok[2];
+            for (std::size_t i = 3; i < tok.size(); ++i) def += " " + tok[i];
+            aliases_[tok[1]] = def;
+            out_ << "alias " << tok[1] << " = " << def << "\n";
+        } else {
+            for (const auto& [k, v] : aliases_) out_ << "  " << k << " = " << v << "\n";
+        }
         return true;
     }
 

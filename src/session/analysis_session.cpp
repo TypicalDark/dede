@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "dede/session/analysis_session.hpp"
 
+#include <fstream>
+#include <sstream>
+#include <string>
+
 namespace dede {
 
 AnalysisSession::AnalysisSession(Arch arch) : AnalysisSession(arch, SessionDeps{}) {}
 
 AnalysisSession::AnalysisSession(Arch arch, SessionDeps deps)
     : core_(arch), timeline_(core_, deps.timeline) {
-    // Observer wiring: the core emits to the bus; the macro engine subscribes.
+    // Observer wiring: the core emits to the bus; the macro engine and the event
+    // history subscribe.
     core_.set_event_sink(&bus_);
     bus_.subscribe(&macros_);
+    bus_.subscribe(&history_);
     macros_.bind_controller(this);
 
     // Dependency injection with production defaults.
@@ -165,6 +171,106 @@ Result<void> AnalysisSession::run_command(CommandPtr cmd) {
     auto r = cmd->execute(*this);
     if (r && macros_.recording()) macros_.record_command(cmd);
     return r;
+}
+
+std::vector<Addr> AnalysisSession::search(Addr start, u64 len,
+                                          const std::vector<u8>& needle) const {
+    std::vector<Addr> hits;
+    if (needle.empty() || len < needle.size()) return hits;
+    const GuestMemory& mem = core_.memory();
+    // Simple sliding window; unmapped bytes break a candidate match.
+    for (u64 i = 0; i + needle.size() <= len; ++i) {
+        bool match = true;
+        for (std::size_t j = 0; j < needle.size(); ++j) {
+            auto b = mem.read8(start + i + j);
+            if (!b || b.value() != needle[j]) { match = false; break; }
+        }
+        if (match) hits.push_back(start + i);
+    }
+    return hits;
+}
+
+namespace {
+char nib(u8 v) { return "0123456789abcdef"[v & 0xf]; }
+bool page_all_zero(const GuestMemory& m, u64 base) {
+    for (u64 i = 0; i < kPageSize; ++i) {
+        auto b = m.read8(base + i);
+        if (b && b.value() != 0) return false;
+    }
+    return true;
+}
+std::string to_hex(u64 v) {
+    std::ostringstream o;
+    o << std::hex << v;
+    return o.str();
+}
+}  // namespace
+
+Result<void> AnalysisSession::save_session(const std::string& path) const {
+    std::ofstream f(path);
+    if (!f) return make_error("save_session: cannot open " + path);
+    f << "DEDE-SESSION 1\nARCH x86_64\nENTRY 0x" << to_hex(core_.cpu().rip()) << "\n";
+    for (int i = 0; i < static_cast<int>(kNumReg); ++i) {
+        Reg r = static_cast<Reg>(i);
+        f << "REG " << reg_name(r) << " 0x" << to_hex(core_.cpu().get(r)) << "\n";
+    }
+    for (u64 base : core_.memory().mapped_pages()) {
+        f << "MAP 0x" << to_hex(base) << " 0x" << to_hex(kPageSize) << " "
+          << unsigned(core_.memory().permissions(base)) << "\n";
+        if (page_all_zero(core_.memory(), base)) continue;  // sparse: skip blanks
+        f << "DATA 0x" << to_hex(base) << " ";
+        for (u64 i = 0; i < kPageSize; ++i) {
+            auto b = core_.memory().read8(base + i);
+            u8 v = b ? b.value() : 0;
+            f << nib(v >> 4) << nib(v);
+        }
+        f << "\n";
+    }
+    for (const auto& [addr, name] : symbols_.all())
+        f << "SYM 0x" << to_hex(addr) << " " << name << "\n";
+    for (const auto& rp : macros_.run_points())
+        if (rp.type == RunPointType::Address)
+            f << "BP 0x" << to_hex(rp.address) << " " << rp.label << "\n";
+    return {};
+}
+
+Result<void> AnalysisSession::load_session(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return make_error("load_session: cannot open " + path);
+    std::string line;
+    Addr entry = 0;
+    auto parse = [](const std::string& s) -> u64 {
+        return s.empty() ? 0 : std::stoull(s, nullptr, 0);
+    };
+    while (std::getline(f, line)) {
+        std::istringstream is(line);
+        std::string k;
+        is >> k;
+        if (k == "ENTRY") { std::string v; is >> v; entry = parse(v); }
+        else if (k == "REG") {
+            std::string name, v; is >> name >> v;
+            if (auto r = reg_from_name(name)) core_.cpu().set(*r, parse(v));
+        } else if (k == "MAP") {
+            std::string base, size; unsigned perms = 0; is >> base >> size >> perms;
+            core_.memory().map(parse(base), parse(size), static_cast<u8>(perms));
+        } else if (k == "DATA") {
+            std::string base, run; is >> base >> run;
+            u64 b = parse(base);
+            for (std::size_t i = 0; i + 1 < run.size(); i += 2)
+                core_.memory().write8(b + i / 2,
+                                      static_cast<u8>(std::stoul(run.substr(i, 2), nullptr, 16)));
+        } else if (k == "SYM") {
+            std::string a, name; is >> a >> name;
+            symbols_.add(parse(a), name);
+        } else if (k == "BP") {
+            std::string a; is >> a;
+            add_breakpoint(parse(a));
+        }
+    }
+    core_.cpu().set_rip(entry);
+    timeline_.begin();
+    set_phase(Phase::Paused);
+    return {};
 }
 
 void AnalysisSession::enable_transparency(ForgedEnvironment env) {

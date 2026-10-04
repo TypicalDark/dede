@@ -7,6 +7,7 @@
 // It extends IDebugController so the same object also drives Commands and macros.
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,7 +17,9 @@
 #include "dede/macro/controller.hpp"          // IDebugController
 #include "dede/macro/event_bus.hpp"           // IEventObserver
 #include "dede/macro/run_point.hpp"           // RunPoint, MacroPtr, CommandPtr
+#include "dede/session/event_history.hpp"     // EventHistory
 #include "dede/session/session_state.hpp"     // Phase
+#include "dede/session/symbol_table.hpp"      // SymbolTable
 #include "dede/transparency/forged_env.hpp"   // ForgedEnvironment
 
 namespace dede {
@@ -71,6 +74,17 @@ public:
     virtual void enable_transparency(ForgedEnvironment env = {}) = 0;
     virtual void disable_transparency() = 0;
     virtual bool transparency_enabled() const = 0;
+
+    // --- quality-of-life -----------------------------------------------------
+    virtual SymbolTable& symbols() = 0;
+    virtual const SymbolTable& symbols() const = 0;
+    virtual const EventHistory& history() const = 0;
+    // Find every occurrence of `needle` in [start, start+len).
+    virtual std::vector<Addr> search(Addr start, u64 len, const std::vector<u8>& needle) const = 0;
+    // Most recent instruction that wrote [addr,addr+size): {pc, tick} or nullopt.
+    virtual std::optional<Event> who_wrote(Addr addr, unsigned size = 1) const = 0;
+    virtual Result<void> save_session(const std::string& path) const = 0;
+    virtual Result<void> load_session(const std::string& path) = 0;
 
     // --- introspection & timeline -------------------------------------------
     virtual IIntrospector& introspector() = 0;

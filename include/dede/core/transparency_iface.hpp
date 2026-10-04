@@ -12,7 +12,11 @@
 namespace dede {
 
 struct ProbeRequest {
-    enum class Kind { Cpuid, Rdtsc, Sidt, RdMsr, WrMsr, IoIn, IoOut } kind{};
+    enum class Kind {
+        Cpuid, Rdtsc, Rdtscp,
+        Sidt, Sgdt, Sldt, Str, Smsw,   // descriptor-table / status probes
+        RdMsr, WrMsr, IoIn, IoOut
+    } kind{};
     u64 leaf = 0;      // cpuid eax
     u64 subleaf = 0;   // cpuid ecx
     u64 arg = 0;       // msr index / io port / value, by kind

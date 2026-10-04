@@ -33,9 +33,19 @@ struct ForgedEnvironment {
     u64 tsc_per_insn = 30;  // ~30 cycles per retired instruction
 
     // sidt / sgdt: a believable bare-metal descriptor-table base (a low kernel
-    // address rather than the high addresses VMs are famous for).
+    // address rather than the high addresses VMs are famous for), defeating the
+    // Red Pill (sidt) and No Pill (sgdt) checks.
     u64 idt_base = 0xfffff800'00000000ull;
+    u16 idt_limit = 0x0fff;
     u64 gdt_base = 0xfffff800'00001000ull;
+    u16 gdt_limit = 0x007f;
+
+    // sldt / str: LDT and task-register selectors that look like real Windows.
+    u16 ldt_selector = 0x0000;
+    u16 tr_selector = 0x0040;
+
+    // smsw: a plausible CR0 (PE|MP|ET|NE|WP|AM|PG set).
+    u64 cr0 = 0x80050033ull;
 
     // I/O: deny the VMware backdoor port so the classic `in eax, dx` with magic
     // 0x564D5868 returns nothing useful.

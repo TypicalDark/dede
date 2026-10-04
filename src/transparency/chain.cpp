@@ -62,10 +62,12 @@ public:
     std::string name() const override { return "rdtsc"; }
 
     bool handle(const ProbeRequest& req, ProbeResult& out) override {
-        if (req.kind != ProbeRequest::Kind::Rdtsc) return false;
+        if (req.kind != ProbeRequest::Kind::Rdtsc && req.kind != ProbeRequest::Kind::Rdtscp)
+            return false;
         u64 tsc = env_.tsc_base + req.tick * env_.tsc_per_insn;
         out.a = tsc & 0xffffffffull;  // eax
         out.d = tsc >> 32;            // edx
+        out.c = 0;                    // rdtscp: IA32_TSC_AUX (CPU 0)
         return true;
     }
 
@@ -73,23 +75,33 @@ private:
     ForgedEnvironment env_;
 };
 
-// sidt/sgdt: hand back a believable bare-metal descriptor-table base, defeating
-// the classic "red pill" that flags high VM addresses.
+// sidt/sgdt/sldt/str/smsw: hand back believable bare-metal values, defeating the
+// Red Pill (sidt), No Pill (sgdt), and the LDT/TR/CR0 tells. For sidt/sgdt the
+// 16-bit limit is returned in `a` and the 64-bit base split across `b`/`c`; for
+// sldt/str/smsw the value is in `a`.
 class DescriptorTableInterceptor final : public IInterceptor {
 public:
     explicit DescriptorTableInterceptor(const ForgedEnvironment& env) : env_(env) {}
-    std::string name() const override { return "sidt/sgdt"; }
+    std::string name() const override { return "sidt/sgdt/sldt/str/smsw"; }
 
     bool handle(const ProbeRequest& req, ProbeResult& out) override {
-        if (req.kind != ProbeRequest::Kind::Sidt) return false;
-        out.a = env_.idt_base & 0xffffffffull;
-        out.d = env_.idt_base >> 32;
-        out.b = env_.gdt_base & 0xffffffffull;
-        out.c = env_.gdt_base >> 32;
-        return true;
+        using K = ProbeRequest::Kind;
+        switch (req.kind) {
+            case K::Sidt: pack_dtr(out, env_.idt_limit, env_.idt_base); return true;
+            case K::Sgdt: pack_dtr(out, env_.gdt_limit, env_.gdt_base); return true;
+            case K::Sldt: out.a = env_.ldt_selector; return true;
+            case K::Str:  out.a = env_.tr_selector; return true;
+            case K::Smsw: out.a = env_.cr0; return true;
+            default: return false;
+        }
     }
 
 private:
+    static void pack_dtr(ProbeResult& out, u16 limit, u64 base) {
+        out.a = limit;
+        out.b = base & 0xffffffffull;
+        out.c = base >> 32;
+    }
     ForgedEnvironment env_;
 };
 

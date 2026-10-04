@@ -109,6 +109,17 @@ public:
     void disable_transparency() override;
     bool transparency_enabled() const override { return transparency_on_; }
 
+    // --- quality-of-life -----------------------------------------------------
+    SymbolTable& symbols() override { return symbols_; }
+    const SymbolTable& symbols() const override { return symbols_; }
+    const EventHistory& history() const override { return history_; }
+    std::vector<Addr> search(Addr start, u64 len, const std::vector<u8>& needle) const override;
+    std::optional<Event> who_wrote(Addr addr, unsigned size = 1) const override {
+        return history_.last_write(addr, size);
+    }
+    Result<void> save_session(const std::string& path) const override;
+    Result<void> load_session(const std::string& path) override;
+
     // --- introspection & timeline (UI-facing) --------------------------------
     IIntrospector& introspector() override { return *introspector_; }
     TimelineStats timeline_stats() const override {
@@ -139,6 +150,9 @@ private:
     std::unique_ptr<IIntrospector> introspector_;
     std::unique_ptr<TransparencyChain> transparency_;
     bool transparency_on_ = false;
+
+    SymbolTable symbols_;
+    EventHistory history_;
 
     const ISessionState* state_ = &session_state(Phase::Idle);
 };

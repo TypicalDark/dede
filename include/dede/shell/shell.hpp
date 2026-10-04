@@ -6,7 +6,9 @@
 #pragma once
 
 #include <iosfwd>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "dede/macro/event_bus.hpp"
 #include "dede/script/script_engine.hpp"
@@ -36,11 +38,15 @@ private:
         bool& on_;
     };
 
+    std::string annotate(Addr a) const;  // " <sym>" for disasm/stack views
+
     IAnalysisEngine& s_;
     IScriptEngine& script_;
     std::ostream& out_;
     bool trace_on_ = false;
     TraceObserver trace_;
+    std::vector<std::string> cmd_history_;
+    std::map<std::string, std::string> aliases_;
 };
 
 }  // namespace dede
