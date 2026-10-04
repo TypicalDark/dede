@@ -147,6 +147,11 @@ target_link_libraries(dede-eval PRIVATE dede_session dede_analysis dede_loader)
 add_executable(dede-forge apps/forge.cpp)
 target_link_libraries(dede-forge PRIVATE dede_samples)
 
+# Renders the GUI workspace to SVG from live engine data (the GUI itself needs a
+# display/GPU; this gives headless, honest "screenshots").
+add_executable(dede-shot apps/shot.cpp)
+target_link_libraries(dede-shot PRIVATE dede_session dede_analysis dede_samples)
+
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()

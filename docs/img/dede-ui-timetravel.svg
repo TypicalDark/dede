@@ -1,0 +1,131 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1360' height='840' viewBox='0 0 1360 840' font-family='ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'>
+<rect x='0' y='0' width='1360' height='840' rx='0' fill='#1c1f24'/>
+<rect x='0' y='0' width='1360' height='28' rx='0' fill='#23282f'/>
+<rect x='8' y='4' width='35.75' height='20' rx='3' fill='#2f3742'/>
+<text x='15' y='18' fill='#c8ccd4' font-size='11.5'>Run</text>
+<rect x='49.75' y='4' width='43' height='20' rx='3' fill='#2f3742'/>
+<text x='56.75' y='18' fill='#c8ccd4' font-size='11.5'>Step</text>
+<rect x='98.75' y='4' width='79.25' height='20' rx='3' fill='#2f3742'/>
+<text x='105.75' y='18' fill='#c8ccd4' font-size='11.5'>Step Over</text>
+<rect x='184' y='4' width='79.25' height='20' rx='3' fill='#2f3742'/>
+<text x='191' y='18' fill='#c8ccd4' font-size='11.5'>Step Back</text>
+<rect x='269.25' y='4' width='72' height='20' rx='3' fill='#2f3742'/>
+<text x='276.25' y='18' fill='#c8ccd4' font-size='11.5'>|&lt; Start</text>
+<rect x='347.25' y='4' width='57.5' height='20' rx='3' fill='#2f3742'/>
+<text x='354.25' y='18' fill='#c8ccd4' font-size='11.5'>End &gt;|</text>
+<rect x='416.75' y='7' width='14' height='14' rx='2' fill='#2f3742' stroke='#4a505c' stroke-width='1'/>
+<text x='436.75' y='18' fill='#c8ccd4' font-size='11.5'>Transparency</text>
+<rect x='4' y='30' width='992' height='548' rx='4' fill='#15181d' stroke='#2a2f38' stroke-width='1'/>
+<rect x='4' y='30' width='97.75' height='22' rx='3' fill='#33415c'/>
+<text x='13' y='45' fill='#dcdcdc' font-size='11.5'>Disassembly</text>
+<rect x='103.75' y='30' width='148.5' height='22' rx='3' fill='#20242c'/>
+<text x='112.75' y='45' fill='#8a8f98' font-size='11.5'>Control-Flow Graph</text>
+<rect x='254.25' y='30' width='90.5' height='22' rx='3' fill='#20242c'/>
+<text x='263.25' y='45' fill='#8a8f98' font-size='11.5'>Decompiler</text>
+<text x='14' y='68' fill='#8a8f98' font-size='11'>[x] follow rip    goto: 101d</text>
+<line x1='12' y1='78' x2='988' y2='78' stroke='#2a2f38' stroke-width='1'/>
+<rect x='10' y='83' width='980' height='16' rx='2' fill='#243018'/>
+<text x='16' y='94' fill='#555b66' font-size='11'>○</text>
+<text x='32' y='94' fill='#80e666' font-size='11.5'>=&gt;</text>
+<text x='52' y='94' fill='#7896c8' font-size='11.5'>0000101d</text>
+<text x='117.25' y='94' fill='#dcdcaa' font-size='11.5'>jne</text>
+<text x='139' y='94' fill='#dcdcdc' font-size='11.5'> 0x1011</text>
+<text x='16' y='110' fill='#555b66' font-size='11'>○</text>
+<text x='32' y='110' fill='#80e666' font-size='11.5'>  </text>
+<text x='52' y='110' fill='#7896c8' font-size='11.5'>0000101f</text>
+<text x='117.25' y='110' fill='#dcdcaa' font-size='11.5'>jmp</text>
+<text x='139' y='110' fill='#dcdcdc' font-size='11.5'> 0x2000</text>
+<text x='16' y='126' fill='#555b66' font-size='11'>○</text>
+<text x='32' y='126' fill='#80e666' font-size='11.5'>  </text>
+<text x='52' y='126' fill='#7896c8' font-size='11.5'>00001024</text>
+<text x='117.25' y='126' fill='#dcdcaa' font-size='11.5'>add</text>
+<text x='139' y='126' fill='#dcdcdc' font-size='11.5'> byte ptr [rax], al</text>
+<text x='16' y='142' fill='#555b66' font-size='11'>○</text>
+<text x='32' y='142' fill='#80e666' font-size='11.5'>  </text>
+<text x='52' y='142' fill='#7896c8' font-size='11.5'>00001026</text>
+<text x='117.25' y='142' fill='#dcdcaa' font-size='11.5'>add</text>
+<text x='139' y='142' fill='#dcdcdc' font-size='11.5'> byte ptr [rax], al</text>
+<text x='52' y='158' fill='#8a8f98' font-size='11'>; ... (uninitialised / padding)</text>
+<rect x='1000' y='30' width='356' height='427.2' rx='4' fill='#15181d' stroke='#2a2f38' stroke-width='1'/>
+<rect x='1000' y='30' width='83.25' height='22' rx='3' fill='#33415c'/>
+<text x='1009' y='45' fill='#dcdcdc' font-size='11.5'>Registers</text>
+<text x='1010' y='68' fill='#8c99cc' font-size='11.5'>rax</text>
+<text x='1044' y='68' fill='#e6783c' font-size='11.5'>00000000000000f4</text>
+<text x='1180' y='68' fill='#8c99cc' font-size='11.5'>rcx</text>
+<text x='1214' y='68' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='86' fill='#8c99cc' font-size='11.5'>rdx</text>
+<text x='1044' y='86' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1180' y='86' fill='#8c99cc' font-size='11.5'>rbx</text>
+<text x='1214' y='86' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='104' fill='#8c99cc' font-size='11.5'>rsp</text>
+<text x='1044' y='104' fill='#dcdcdc' font-size='11.5'>0000000000078000</text>
+<text x='1180' y='104' fill='#8c99cc' font-size='11.5'>rbp</text>
+<text x='1214' y='104' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='122' fill='#8c99cc' font-size='11.5'>rsi</text>
+<text x='1044' y='122' fill='#e6783c' font-size='11.5'>0000000000002011</text>
+<text x='1180' y='122' fill='#8c99cc' font-size='11.5'>rdi</text>
+<text x='1214' y='122' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='140' fill='#8c99cc' font-size='11.5'>r8</text>
+<text x='1044' y='140' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1180' y='140' fill='#8c99cc' font-size='11.5'>r9</text>
+<text x='1214' y='140' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='158' fill='#8c99cc' font-size='11.5'>r10</text>
+<text x='1044' y='158' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1180' y='158' fill='#8c99cc' font-size='11.5'>r11</text>
+<text x='1214' y='158' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='176' fill='#8c99cc' font-size='11.5'>r12</text>
+<text x='1044' y='176' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1180' y='176' fill='#8c99cc' font-size='11.5'>r13</text>
+<text x='1214' y='176' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1010' y='194' fill='#8c99cc' font-size='11.5'>r14</text>
+<text x='1044' y='194' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<text x='1180' y='194' fill='#8c99cc' font-size='11.5'>r15</text>
+<text x='1214' y='194' fill='#dcdcdc' font-size='11.5'>0000000000000000</text>
+<line x1='1008' y1='210' x2='1348' y2='210' stroke='#2a2f38' stroke-width='1'/>
+<text x='1010' y='220' fill='#dcdcdc' font-size='11.5'>rip 000000000000101d</text>
+<text x='1010' y='238' fill='#8a8f98' font-size='11.5'>flags</text>
+<text x='1054' y='238' fill='#666666' font-size='11.5'>CF</text>
+<text x='1080' y='238' fill='#66e666' font-size='11.5'>PF</text>
+<text x='1106' y='238' fill='#66e666' font-size='11.5'>ZF</text>
+<text x='1132' y='238' fill='#666666' font-size='11.5'>SF</text>
+<text x='1158' y='238' fill='#666666' font-size='11.5'>OF</text>
+<rect x='1000' y='461.2' width='356' height='348.8' rx='4' fill='#15181d' stroke='#2a2f38' stroke-width='1'/>
+<rect x='1000' y='461.2' width='54.25' height='22' rx='3' fill='#33415c'/>
+<text x='1009' y='476.2' fill='#dcdcdc' font-size='11.5'>Stack</text>
+<rect x='1056.25' y='461.2' width='61.5' height='22' rx='3' fill='#20242c'/>
+<text x='1065.25' y='476.2' fill='#8a8f98' font-size='11.5'>Memory</text>
+<text x='1010' y='499.2' fill='#4a90d9' font-size='11.5'>rsp 0000000000078000 : 0000000000000000</text>
+<text x='1010' y='516.2' fill='#dcdcdc' font-size='11.5'>    0000000000078008 : 0000000000000000</text>
+<text x='1010' y='533.2' fill='#dcdcdc' font-size='11.5'>    0000000000078010 : 0000000000000000</text>
+<text x='1010' y='550.2' fill='#dcdcdc' font-size='11.5'>    0000000000078018 : 0000000000000000</text>
+<text x='1010' y='567.2' fill='#dcdcdc' font-size='11.5'>    0000000000078020 : 0000000000000000</text>
+<text x='1010' y='584.2' fill='#dcdcdc' font-size='11.5'>    0000000000078028 : 0000000000000000</text>
+<text x='1010' y='601.2' fill='#dcdcdc' font-size='11.5'>    0000000000078030 : 0000000000000000</text>
+<text x='1010' y='618.2' fill='#dcdcdc' font-size='11.5'>    0000000000078038 : 0000000000000000</text>
+<text x='1010' y='635.2' fill='#dcdcdc' font-size='11.5'>    0000000000078040 : 0000000000000000</text>
+<text x='1010' y='652.2' fill='#dcdcdc' font-size='11.5'>    0000000000078048 : 0000000000000000</text>
+<text x='1010' y='669.2' fill='#dcdcdc' font-size='11.5'>    0000000000078050 : 0000000000000000</text>
+<text x='1010' y='686.2' fill='#dcdcdc' font-size='11.5'>    0000000000078058 : 0000000000000000</text>
+<text x='1010' y='703.2' fill='#dcdcdc' font-size='11.5'>    0000000000078060 : 0000000000000000</text>
+<text x='1010' y='720.2' fill='#dcdcdc' font-size='11.5'>    0000000000078068 : 0000000000000000</text>
+<rect x='4' y='582' width='992' height='232' rx='4' fill='#15181d' stroke='#2a2f38' stroke-width='1'/>
+<rect x='4' y='582' width='68.75' height='22' rx='3' fill='#20242c'/>
+<text x='13' y='597' fill='#8a8f98' font-size='11.5'>Console</text>
+<rect x='74.75' y='582' width='54.25' height='22' rx='3' fill='#20242c'/>
+<text x='83.75' y='597' fill='#8a8f98' font-size='11.5'>Trace</text>
+<rect x='131' y='582' width='90.5' height='22' rx='3' fill='#20242c'/>
+<text x='140' y='597' fill='#8a8f98' font-size='11.5'>Run Points</text>
+<rect x='223.5' y='582' width='76' height='22' rx='3' fill='#33415c'/>
+<text x='232.5' y='597' fill='#dcdcdc' font-size='11.5'>Timeline</text>
+<rect x='301.5' y='582' width='90.5' height='22' rx='3' fill='#20242c'/>
+<text x='310.5' y='597' fill='#8a8f98' font-size='11.5'>Memory Map</text>
+<rect x='394' y='582' width='105' height='22' rx='3' fill='#20242c'/>
+<text x='403' y='597' fill='#8a8f98' font-size='11.5'>Architecture</text>
+<text x='14' y='626' fill='#dcdcdc' font-size='11.5'>Timeline   tick 103 / 109</text>
+<rect x='14' y='636' width='972' height='10' rx='4' fill='#0e1013' stroke='#2a2f38' stroke-width='1'/>
+<rect x='14' y='636' width='918.495' height='10' rx='4' fill='#4a90d9'/>
+<rect x='929.495' y='634' width='6' height='14' rx='3' fill='#cfe4ff'/>
+<text x='14' y='662' fill='#8a8f98' font-size='11'>[&lt;&lt; -10]  [&lt; -1]  [+1 &gt;]</text>
+<rect x='0' y='816' width='1360' height='24' rx='0' fill='#23282f'/>
+<text x='10' y='832' fill='#8a8f98' font-size='11.5'>paused | builtin-x86-64 | rip=0x101d | tick 103/109 | ring 110 snap 1 inj 0 | raw</text>
+</svg>

@@ -49,6 +49,7 @@ Everything below runs and is covered by tests — build it and try the demo.
 - **Shell** — an interactive REPL driving everything through one engine interface.
 - **GUI** — an optional Vulkan + Dear ImGui desktop workspace (same engine
   interface), with a CFG graph view, timeline scrubber, and embedded console.
+  See [docs/GUI.md](docs/GUI.md) for a tour with rendered views of each panel.
 - **Self-scoring** — `dede-eval` runs dede against a 150-point RE-tool
   effectiveness suite and writes [docs/EFFECTIVENESS_REPORT.md](docs/EFFECTIVENESS_REPORT.md).
 
