@@ -59,7 +59,9 @@ public:
     // Control-flow graph of the function at `entry`, from the live byte image.
     virtual Cfg build_cfg(Addr entry) const = 0;
 
-    static constexpr u64 kRunForever = (1u << 22);
+    // Safety cap for "run until it stops on its own" (a runaway guard, not a
+    // semantic limit). Shared by the interface default and the implementation.
+    static constexpr u64 kRunForever = 100'000'000ull;
 
     // --- higher-level control (step/step_back come from IDebugController) -----
     virtual StepOutcome run(u64 max_steps = kRunForever) = 0;

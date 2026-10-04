@@ -81,8 +81,8 @@ public:
     Result<void> step_back(Tick n) override;
 
     // --- higher-level control ------------------------------------------------
-    StepOutcome run(u64 max_steps = (1u << 22)) override;     // until stop/halt/fault
-    Result<void> run_to(Addr addr, u64 max_steps = (1u << 22)) override;
+    StepOutcome run(u64 max_steps = kRunForever) override;     // until stop/halt/fault
+    Result<void> run_to(Addr addr, u64 max_steps = kRunForever) override;
     Result<void> seek(Tick tick) override;                    // absolute time-travel
 
     // --- views ---------------------------------------------------------------

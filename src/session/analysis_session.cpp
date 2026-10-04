@@ -37,6 +37,7 @@ void AnalysisSession::set_entry(Addr rip) {
 }
 
 void AnalysisSession::write_reg(Reg r, u64 v, const std::string& note) {
+    if (!state_->can_mutate()) return;  // State pattern: no edits while Idle/Replaying
     // Editing the past forks the timeline.
     if (timeline_.now() < timeline_.max_tick()) timeline_.truncate_after(timeline_.now());
     core_.cpu().set(r, v);
@@ -52,6 +53,8 @@ void AnalysisSession::write_reg(Reg r, u64 v, const std::string& note) {
 
 Result<void> AnalysisSession::write_bytes(Addr a, const std::vector<u8>& data,
                                           const std::string& note) {
+    if (!state_->can_mutate())
+        return make_error("cannot modify memory in state '" + std::string(state_->name()) + "'");
     if (timeline_.now() < timeline_.max_tick()) timeline_.truncate_after(timeline_.now());
     auto r = core_.memory().write(a, data);
     if (!r) return r;
@@ -185,6 +188,7 @@ bool AnalysisSession::bind_macro(u64 run_point_id, MacroPtr macro) {
 }
 
 void AnalysisSession::start_recording() {
+    if (!state_->can_record_start()) return;  // State pattern: only from Paused
     macros_.start_recording();
     set_phase(Phase::Recording);
 }

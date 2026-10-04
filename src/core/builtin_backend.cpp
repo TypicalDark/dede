@@ -526,12 +526,14 @@ private:
         } else {
             cnt = 1;
         }
-        cnt &= (bytes == 8) ? 63u : 31u;
+        cnt &= (bytes == 8) ? 63u : 31u;  // x86 masks the count (0x1f / 0x3f)
         u64 av = a.value() & mask_bytes(bytes), res = av;
         if (cnt != 0) {
             if (m == "shl" || m == "sal") {
                 res = (av << cnt);
-                e.cpu.set_flag(flags::CF, ((av >> (bits - cnt)) & 1) != 0);
+                // The count can exceed the operand width (e.g. shl al, 31): all
+                // bits then shift out and CF is 0. Guard bits-cnt against underflow.
+                e.cpu.set_flag(flags::CF, cnt <= bits ? ((av >> (bits - cnt)) & 1) != 0 : false);
             } else if (m == "shr") {
                 res = (av >> cnt);
                 e.cpu.set_flag(flags::CF, ((av >> (cnt - 1)) & 1) != 0);

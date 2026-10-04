@@ -67,4 +67,34 @@ TEST("forward seek fires run-point macros (no silent skip, no leaked pending)") 
     CHECK_EQ(s.run_points()[0].hit_count, hits_before);  // 0x1003 != 0x1002
 }
 
+TEST("watchpoint fires on a multi-byte write that straddles the address") {
+    // mov rax, 0x11223344 ; mov [0x70000], rax (8-byte) ; hlt ; watch 0x70004
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.map(0x70000, 0x1000, perm::RW);
+    s.load(0x1000,
+           {0x48, 0xC7, 0xC0, 0x44, 0x33, 0x22, 0x11,       // mov rax, 0x11223344
+            0x48, 0x89, 0x04, 0x25, 0x00, 0x00, 0x07, 0x00,  // mov [0x70000], rax
+            0xF4},
+           perm::RWX);
+    s.set_entry(0x1000);
+    RunPoint rp;
+    rp.type = RunPointType::MemWrite;
+    rp.address = 0x70004;  // inside the 8-byte store, not its base
+    rp.pause = true;
+    s.add_run_point(std::move(rp));
+    s.run();
+    CHECK(s.run_points()[0].hit_count >= 1u);
+}
+
+TEST("large shift count does not trip UB and clears CF") {
+    // mov al, 0xFF ; shl al, 9 ; hlt   -> al = 0, CF = 0 (all bits shifted out)
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, {0xB0, 0xFF, 0xC0, 0xE0, 0x09, 0xF4}, perm::RWX);  // mov al,0xFF; shl al,9; hlt
+    s.set_entry(0x1000);
+    CHECK(s.run().status == StepOutcome::Status::Halted);
+    CHECK_EQ(s.read_reg(Reg::Rax) & 0xff, 0u);
+}
+
 int main() { return dede::test::run_all(); }

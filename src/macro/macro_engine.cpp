@@ -53,10 +53,14 @@ bool MacroEngine::matches(const RunPoint& rp, const Event& e) const {
             return e.kind == EventKind::Step && e.address == rp.address;
         case RunPointType::InstrCount:
             return e.kind == EventKind::Step && e.tick == rp.count;
+        // A watchpoint fires when the access RANGE covers the watched address, so a
+        // multi-byte write that straddles it is not missed.
         case RunPointType::MemRead:
-            return e.kind == EventKind::MemRead && e.address == rp.address;
+            return e.kind == EventKind::MemRead &&
+                   rp.address >= e.address && rp.address < e.address + (e.size ? e.size : 1);
         case RunPointType::MemWrite:
-            return e.kind == EventKind::MemWrite && e.address == rp.address;
+            return e.kind == EventKind::MemWrite &&
+                   rp.address >= e.address && rp.address < e.address + (e.size ? e.size : 1);
         case RunPointType::WrittenThenExec:
             return e.kind == EventKind::ExecWrittenPage;
         case RunPointType::Condition:
