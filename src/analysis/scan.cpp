@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <map>
 #include <memory>
 #include <set>
+#include <sstream>
 
 namespace dede {
 
@@ -122,6 +124,21 @@ public:
     }
 };
 
+class VmDispatchDetector final : public IDetector {
+public:
+    std::string name() const override { return "vm-dispatch"; }
+    void inspect(const DecodedInsn& in, std::vector<Finding>& out) const override {
+        // An indirect jmp/call (through a register or memory/jump-table) is the
+        // signature of a VM dispatcher, a switch table, or a callback.
+        if ((in.cf.is_branch || in.cf.is_call) && !in.operands.empty() &&
+            in.operands[0].kind != OpKind::Imm) {
+            const char* what = in.cf.is_call ? "indirect call (callback / vtable?)"
+                                             : "indirect jump (VM dispatch / jump table?)";
+            out.push_back({"obfuscation", what, in.addr, in.text(), "notice"});
+        }
+    }
+};
+
 class CryptoDetector final : public IDetector {
 public:
     std::string name() const override { return "crypto"; }
@@ -145,6 +162,7 @@ const std::vector<std::unique_ptr<IDetector>>& detectors() {
         v.push_back(std::make_unique<TimingDetector>());
         v.push_back(std::make_unique<AntiDebugDetector>());
         v.push_back(std::make_unique<CryptoDetector>());
+        v.push_back(std::make_unique<VmDispatchDetector>());
         return v;
     }();
     return d;
@@ -166,6 +184,109 @@ std::vector<std::string> detector_names() {
     std::vector<std::string> n;
     for (const auto& d : detectors()) n.push_back(d->name());
     return n;
+}
+
+std::vector<Addr> unreachable_insns(Arch arch, const ByteReader& read, Addr entry, u64 range) {
+    auto d = make_disassembler(arch);
+    // All instruction starts from a linear sweep of the range.
+    std::set<Addr> linear;
+    auto bytes = read_run(read, entry, range);
+    for (const auto& in : d->decode(bytes.data(), bytes.size(), entry, 0)) linear.insert(in.addr);
+    // Reachable instruction starts, via the CFG from entry.
+    std::set<Addr> reachable;
+    for (const auto& bb : build_cfg(*d, read, entry).blocks)
+        for (const auto& in : bb.insns) reachable.insert(in.addr);
+    std::vector<Addr> dead;
+    for (Addr a : linear)
+        if (!reachable.count(a)) dead.push_back(a);
+    return dead;
+}
+
+u32 crc32(const ByteReader& read, Addr addr, u64 len) {
+    u32 crc = 0xffffffffu;
+    for (u64 i = 0; i < len; ++i) {
+        auto b = read(addr + i);
+        if (!b) break;
+        crc ^= *b;
+        for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (-(crc & 1)));
+    }
+    return ~crc;
+}
+
+u64 fnv1a(const ByteReader& read, Addr addr, u64 len) {
+    u64 h = 1469598103934665603ull;
+    for (u64 i = 0; i < len; ++i) {
+        auto b = read(addr + i);
+        if (!b) break;
+        h ^= *b;
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+std::vector<Addr> recursive_functions(const CallGraph& g) {
+    // Build adjacency and find nodes on a cycle (incl. direct self-calls) via DFS.
+    std::map<Addr, std::vector<Addr>> adj;
+    for (auto& [from, to] : g.calls) adj[from].push_back(to);
+    std::set<Addr> result;
+    for (const auto& n : g.funcs) {
+        std::set<Addr> seen;
+        std::deque<Addr> st{n.entry};
+        bool first = true;
+        while (!st.empty()) {
+            Addr c = st.back(); st.pop_back();
+            if (!first && c == n.entry) { result.insert(n.entry); break; }
+            first = false;
+            if (seen.count(c)) continue;
+            seen.insert(c);
+            for (Addr t : adj[c]) st.push_back(t);
+        }
+    }
+    return {result.begin(), result.end()};
+}
+
+std::string to_json(const Cfg& cfg) {
+    std::ostringstream o;
+    o << "{\"entry\":" << cfg.entry << ",\"blocks\":[";
+    for (std::size_t i = 0; i < cfg.blocks.size(); ++i) {
+        const auto& b = cfg.blocks[i];
+        o << "{\"start\":" << b.start << ",\"end\":" << b.end << ",\"insns\":" << b.insns.size()
+          << ",\"terminal\":" << (b.terminates ? "true" : "false") << "}" << (i + 1 < cfg.blocks.size() ? "," : "");
+    }
+    o << "],\"edges\":[";
+    for (std::size_t i = 0; i < cfg.edges.size(); ++i) {
+        const auto& e = cfg.edges[i];
+        o << "{\"from\":" << e.from << ",\"to\":" << e.to << ",\"kind\":\"" << to_string(e.kind)
+          << "\"}" << (i + 1 < cfg.edges.size() ? "," : "");
+    }
+    o << "]}";
+    return o.str();
+}
+
+std::string to_json(const CallGraph& g) {
+    std::ostringstream o;
+    o << "{\"funcs\":[";
+    for (std::size_t i = 0; i < g.funcs.size(); ++i)
+        o << "{\"entry\":" << g.funcs[i].entry << ",\"blocks\":" << g.funcs[i].blocks << "}"
+          << (i + 1 < g.funcs.size() ? "," : "");
+    o << "],\"calls\":[";
+    for (std::size_t i = 0; i < g.calls.size(); ++i)
+        o << "[" << g.calls[i].first << "," << g.calls[i].second << "]"
+          << (i + 1 < g.calls.size() ? "," : "");
+    o << "]}";
+    return o.str();
+}
+
+std::string to_json(const std::vector<Finding>& findings) {
+    std::ostringstream o;
+    o << "[";
+    for (std::size_t i = 0; i < findings.size(); ++i) {
+        const auto& f = findings[i];
+        o << "{\"category\":\"" << f.category << "\",\"rule\":\"" << f.rule << "\",\"addr\":" << f.addr
+          << ",\"severity\":\"" << f.severity << "\"}" << (i + 1 < findings.size() ? "," : "");
+    }
+    o << "]";
+    return o.str();
 }
 
 CallGraph build_call_graph(Arch arch, const ByteReader& read, Addr entry, std::size_t max_funcs) {

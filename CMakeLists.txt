@@ -101,7 +101,7 @@ if(DEDE_WITH_LUAU)
   target_compile_definitions(dede_script PUBLIC DEDE_WITH_LUAU)
 endif()
 
-dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script)
+dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script dede_analysis dede_loader)
 
 # --- Vulkan + Dear ImGui GUI (optional) --------------------------------------
 option(DEDE_WITH_GUI "Build the Vulkan/ImGui desktop GUI (needs libvulkan-dev, libglfw3-dev, and third_party/imgui)" OFF)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "dede/shell/shell.hpp"
 
+#include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -8,6 +10,7 @@
 
 #include "dede/analysis/arch_view.hpp"
 #include "dede/analysis/scan.hpp"
+#include "dede/loader/loader.hpp"
 
 namespace dede {
 namespace {
@@ -75,9 +78,18 @@ void Shell::TraceObserver::on_event(const Event& e) {
     out_ << "\n";
 }
 
+void Shell::ExecCounter::on_event(const Event& e) {
+    if (e.kind == EventKind::Step || e.kind == EventKind::Halt ||
+        e.kind == EventKind::Breakpoint || e.kind == EventKind::Syscall) {
+        counts[e.pc]++;
+        ++total;
+    }
+}
+
 Shell::Shell(IAnalysisEngine& engine, IScriptEngine& script, std::ostream& out)
     : s_(engine), script_(script), out_(out), trace_(out, trace_on_) {
     s_.subscribe(&trace_);
+    s_.subscribe(&profiler_);
 }
 
 bool Shell::execute(const std::string& line) {
@@ -115,9 +127,16 @@ bool Shell::execute(const std::string& line) {
             "  opcodes [addr] [n]       instruction-frequency histogram\n"
             "  strings <addr> <len>     extract ASCII strings\n"
             "  capture on|off|list      capture guest syscalls/probes (Wireshark-style)\n"
+            "  open <binary>            load an ELF/PE (auto-detected) or flat blob\n"
             "  info                     image format, sections, imports, symbols\n"
             "  sections                 list loaded sections\n"
             "  imports [filter]         list imported (undefined) symbols\n"
+            "  hash <addr> <len>        crc32 + fnv1a of a region\n"
+            "  deadcode [addr] [range]  unreachable instructions (dead code)\n"
+            "  recursion [addr]         recursive functions in the call graph\n"
+            "  profile [n]              hottest executed addresses\n"
+            "  export cfg|callgraph|scan <addr> <path>   write analysis as JSON\n"
+            "  diff <file>              byte-diff the loaded image against another\n"
             "  step [n] | s             step n instructions\n"
             "  back [n] | sb            step back n instructions (time-travel)\n"
             "  run | c                  run until breakpoint/halt\n"
@@ -449,6 +468,18 @@ bool Shell::execute(const std::string& line) {
         out_ << (r ? "loaded " + tok[1] + "\n" : "error: " + r.message() + "\n");
         return true;
     }
+    if (cmd == "open") {
+        if (tok.size() < 2) { out_ << "usage: open <binary>  (ELF/PE auto-detected, else flat)\n"; return true; }
+        auto img = load_image_file(tok[1], 0x1000);
+        if (!img) { out_ << "error: " << img.message() << "\n"; return true; }
+        if (img.value().format == "flat") s_.map(0x1000, 0x10000, perm::RWX);
+        auto r = s_.load_image(img.value());
+        if (!r) { out_ << "error: " << r.message() << "\n"; return true; }
+        out_ << "opened " << tok[1] << " [" << img.value().format << "] entry=" << hex(img.value().entry)
+             << ", " << img.value().sections.size() << " section(s), " << img.value().symbols.size()
+             << " symbol(s), " << img.value().imports.size() << " import(s)\n";
+        return true;
+    }
 
     // A ByteReader over the live guest image for the analysis functions.
     auto reader = [this](Addr a) -> std::optional<u8> {
@@ -544,6 +575,72 @@ bool Shell::execute(const std::string& line) {
         } else {
             out_ << "usage: capture on|off|clear|list\n";
         }
+        return true;
+    }
+
+    if (cmd == "hash") {
+        if (tok.size() < 3) { out_ << "usage: hash <addr> <len>\n"; return true; }
+        Addr a = arg_u64(1, 0); u64 n = arg_u64(2, 0);
+        out_ << "crc32  = " << hex(crc32(reader, a, n)) << "\n";
+        out_ << "fnv1a  = " << hex(fnv1a(reader, a, n)) << "\n";
+        return true;
+    }
+    if (cmd == "deadcode") {
+        Addr a = tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip();
+        u64 range = arg_u64(tok.size() >= 3 ? 2 : 99, 256);
+        auto dead = unreachable_insns(s_.arch(), reader, a, range);
+        out_ << dead.size() << " unreachable instruction(s) in [" << hex(a) << "..+" << range << "):\n";
+        for (std::size_t i = 0; i < dead.size() && i < 32; ++i) out_ << "  " << hex(dead[i]) << "\n";
+        return true;
+    }
+    if (cmd == "recursion") {
+        auto g = build_call_graph(s_.arch(), reader, tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip());
+        auto rec = recursive_functions(g);
+        out_ << rec.size() << " recursive function(s):\n";
+        for (Addr a : rec) out_ << "  " << hex(a) << annotate(a) << "\n";
+        return true;
+    }
+    if (cmd == "export") {
+        if (tok.size() < 4) { out_ << "usage: export cfg|callgraph|scan <addr> <path>\n"; return true; }
+        Addr a = arg_u64(2, s_.rip());
+        std::string json;
+        if (tok[1] == "cfg") json = to_json(s_.build_cfg(a));
+        else if (tok[1] == "callgraph") json = to_json(build_call_graph(s_.arch(), reader, a));
+        else if (tok[1] == "scan") json = to_json(detect(s_.arch(), reader, a, 400));
+        else { out_ << "unknown export '" << tok[1] << "'\n"; return true; }
+        std::ofstream f(tok[3]);
+        f << json;
+        out_ << "wrote " << json.size() << " bytes to " << tok[3] << "\n";
+        return true;
+    }
+    if (cmd == "profile") {
+        std::vector<std::pair<Addr, u64>> v(profiler_.counts.begin(), profiler_.counts.end());
+        std::sort(v.begin(), v.end(), [](auto& a, auto& b) { return a.second > b.second; });
+        out_ << "executed " << profiler_.total << " instructions; hottest addresses:\n";
+        u64 n = arg_u64(1, 12);
+        for (std::size_t i = 0; i < v.size() && i < n; ++i)
+            out_ << "  " << hex(v[i].first) << annotate(v[i].first) << "  x" << v[i].second << "\n";
+        return true;
+    }
+    if (cmd == "diff") {
+        if (tok.size() < 2) { out_ << "usage: diff <other-file>\n"; return true; }
+        auto other = load_image_file(tok[1]);
+        if (!other) { out_ << "error: " << other.message() << "\n"; return true; }
+        u64 differ = 0, compared = 0; Addr first = 0; bool have_first = false;
+        for (const auto& seg : other.value().segments)
+            for (std::size_t i = 0; i < seg.bytes.size(); ++i) {
+                auto cur = s_.read_mem(seg.vaddr + i, 1);
+                if (!cur) continue;
+                ++compared;
+                if (static_cast<u8>(cur.value()) != seg.bytes[i]) {
+                    ++differ;
+                    if (!have_first) { first = seg.vaddr + i; have_first = true; }
+                }
+            }
+        out_ << "compared " << compared << " bytes vs " << tok[1] << " [" << other.value().format
+             << "]: " << differ << " differ";
+        if (have_first) out_ << " (first at " << hex(first) << ")";
+        out_ << "\n";
         return true;
     }
 

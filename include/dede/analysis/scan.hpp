@@ -38,6 +38,14 @@ std::vector<FoundString> extract_strings(const ByteReader& read, Addr addr, u64 
 // Cyclomatic complexity M = E - N + 2 for a function CFG.
 int cyclomatic_complexity(const Cfg& cfg);
 
+// Instruction addresses in [entry, entry+range) that a linear sweep decodes but
+// the CFG from `entry` never reaches — i.e. dead/unreachable code.
+std::vector<Addr> unreachable_insns(Arch arch, const ByteReader& read, Addr entry, u64 range);
+
+// CRC-32 (IEEE) and FNV-1a over a region — integrity/identity hashing.
+u32 crc32(const ByteReader& read, Addr addr, u64 len);
+u64 fnv1a(const ByteReader& read, Addr addr, u64 len);
+
 // --- protection / anti-analysis detection (pluggable) -----------------------
 
 struct Finding {
@@ -72,5 +80,13 @@ struct CallGraph {
 };
 CallGraph build_call_graph(Arch arch, const ByteReader& read, Addr entry,
                            std::size_t max_funcs = 128);
+
+// Function entries that are (transitively) recursive — a cycle in the call graph.
+std::vector<Addr> recursive_functions(const CallGraph& g);
+
+// --- JSON export ------------------------------------------------------------
+std::string to_json(const Cfg& cfg);
+std::string to_json(const CallGraph& g);
+std::string to_json(const std::vector<Finding>& findings);
 
 }  // namespace dede

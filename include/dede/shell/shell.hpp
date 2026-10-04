@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "dede/common/types.hpp"
+
 #include "dede/macro/event_bus.hpp"
 #include "dede/script/script_engine.hpp"
 #include "dede/session/engine.hpp"
@@ -38,6 +40,14 @@ private:
         bool& on_;
     };
 
+    // Counts executed instructions per address, for the `profile` command.
+    class ExecCounter final : public IEventObserver {
+    public:
+        void on_event(const Event& e) override;
+        std::map<Addr, u64> counts;
+        u64 total = 0;
+    };
+
     std::string annotate(Addr a) const;  // " <sym>" for disasm/stack views
 
     IAnalysisEngine& s_;
@@ -45,6 +55,7 @@ private:
     std::ostream& out_;
     bool trace_on_ = false;
     TraceObserver trace_;
+    ExecCounter profiler_;
     std::vector<std::string> cmd_history_;
     std::map<std::string, std::string> aliases_;
 };
