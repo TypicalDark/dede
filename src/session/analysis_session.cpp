@@ -38,6 +38,25 @@ void AnalysisSession::set_entry(Addr rip) {
     set_phase(Phase::Paused);
 }
 
+Result<void> AnalysisSession::load_image(const LoadedImage& img) {
+    for (const auto& seg : img.segments) {
+        core_.memory().map(seg.vaddr, seg.bytes.empty() ? 1 : seg.bytes.size(), seg.perms);
+        if (!seg.bytes.empty())
+            if (auto r = core_.memory().write(seg.vaddr, seg.bytes); !r) return r;
+    }
+    // A default stack, since an ELF/PE entry expects one.
+    constexpr Addr kStackTop = 0x7fff0000;
+    core_.memory().map(kStackTop - 0x20000, 0x20000, perm::RW);
+    core_.cpu().set(Reg::Rsp, kStackTop - 0x1000);
+
+    for (const auto& s : img.symbols) symbols_.add(s.addr, s.name);
+    format_ = img.format;
+    imports_ = img.imports;
+    sections_ = img.sections;
+    set_entry(img.entry);
+    return {};
+}
+
 void AnalysisSession::write_reg(Reg r, u64 v, const std::string& note) {
     if (!state_->can_mutate()) return;  // State pattern: no edits while Idle/Replaying
     // Editing the past forks the timeline.

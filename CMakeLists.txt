@@ -84,13 +84,15 @@ dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp 
 dede_library(dede_samples SRCS src/samples/tiers.cpp DEPS dede_common)
 
 dede_library(dede_introspection SRCS src/introspection/introspector.cpp DEPS dede_common)
+
+dede_library(dede_loader SRCS src/loader/loader.cpp DEPS dede_common)
 if(DEDE_WITH_LIBVMI)
   target_compile_definitions(dede_introspection PUBLIC DEDE_WITH_LIBVMI)
 endif()
 
 dede_library(dede_session
   SRCS src/session/session_state.cpp src/session/analysis_session.cpp src/session/capture.cpp
-  DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection dede_analysis)
+  DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection dede_analysis dede_loader)
 
 dede_library(dede_script
   SRCS src/script/null_engine.cpp src/script/luau_engine.cpp
@@ -140,7 +142,7 @@ add_executable(dede-bench apps/bench.cpp)
 target_link_libraries(dede-bench PRIVATE dede_session)
 
 add_executable(dede-eval apps/eval.cpp)
-target_link_libraries(dede-eval PRIVATE dede_session dede_analysis)
+target_link_libraries(dede-eval PRIVATE dede_session dede_analysis dede_loader)
 
 add_executable(dede-forge apps/forge.cpp)
 target_link_libraries(dede-forge PRIVATE dede_samples)
@@ -148,7 +150,7 @@ target_link_libraries(dede-forge PRIVATE dede_samples)
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)

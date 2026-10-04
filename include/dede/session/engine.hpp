@@ -15,6 +15,7 @@
 #include "dede/core/backend.hpp"              // StepOutcome
 #include "dede/disasm/instruction.hpp"        // DecodedInsn
 #include "dede/introspection/introspector.hpp"
+#include "dede/loader/loader.hpp"             // LoadedImage, LoadSection
 #include "dede/macro/controller.hpp"          // IDebugController
 #include "dede/macro/event_bus.hpp"           // IEventObserver
 #include "dede/macro/run_point.hpp"           // RunPoint, MacroPtr, CommandPtr
@@ -53,6 +54,11 @@ public:
     virtual void map(Addr base, u64 size, u8 perms) = 0;
     virtual Result<void> load(Addr base, const std::vector<u8>& bytes, u8 perms) = 0;
     virtual void set_entry(Addr rip) = 0;
+    // Load a parsed ELF/PE/flat image: map segments, set entry+stack, import symbols.
+    virtual Result<void> load_image(const LoadedImage& img) = 0;
+    virtual std::string image_format() const = 0;
+    virtual const std::vector<std::string>& imports() const = 0;
+    virtual const std::vector<LoadSection>& sections() const = 0;
 
     // --- views ---------------------------------------------------------------
     virtual std::vector<DecodedInsn> disassemble(Addr addr, std::size_t count) const = 0;

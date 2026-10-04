@@ -57,6 +57,10 @@ public:
     void map(Addr base, u64 size, u8 perms) override { core_.memory().map(base, size, perms); }
     Result<void> load(Addr base, const std::vector<u8>& bytes, u8 perms = perm::RX) override;
     void set_entry(Addr rip) override;  // sets rip, captures tick 0, enters Paused
+    Result<void> load_image(const LoadedImage& img) override;
+    std::string image_format() const override { return format_; }
+    const std::vector<std::string>& imports() const override { return imports_; }
+    const std::vector<LoadSection>& sections() const override { return sections_; }
 
     // --- IDebugController: observing ----------------------------------------
     u64 read_reg(Reg r) const override { return core_.cpu().get(r); }
@@ -162,6 +166,10 @@ private:
     SymbolTable symbols_;
     EventHistory history_;
     CaptureTap capture_;
+
+    std::string format_ = "flat";
+    std::vector<std::string> imports_;
+    std::vector<LoadSection> sections_;
 
     const ISessionState* state_ = &session_state(Phase::Idle);
 };

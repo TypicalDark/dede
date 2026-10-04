@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "dede/analysis/scan.hpp"
+#include "dede/loader/loader.hpp"
 #include "dede/session/analysis_session.hpp"
 
 using namespace dede;
@@ -224,6 +225,31 @@ void run_dynamic_checks() {
         bool ok=false; for (const auto& e : s.capture_log()) if (e.name=="write" && e.args[0]==2) ok=true;
         rec(42,'C',"Syscall interception + logging", ok?V::PASS:V::FAIL, "capture tap dissected write(fd=2,...); MITM via Syscall run point (see NETWORK_CAPTURE.md)");
     }
+    // 1,3,77,78,88: real binary loading (ELF) — use a system binary if present.
+    {
+        LoadedImage img; bool got = false;
+        for (const char* p : {"/bin/true", "/usr/bin/true", "/bin/ls", "/usr/bin/ls"}) {
+            auto r = load_image_file(p);
+            if (r && r.value().format == "elf64") { img = r.value(); got = true; break; }
+        }
+        if (got) {
+            rec(1,'A',"Automated import analysis", img.imports.empty()?V::PARTIAL:V::PASS,
+                "ELF loader parsed "+std::to_string(img.imports.size())+" imported symbols from a real binary");
+            rec(3,'A',"Section header analysis", img.sections.empty()?V::PARTIAL:V::PASS,
+                "ELF loader parsed "+std::to_string(img.sections.size())+" sections with perms");
+            rec(77,'E',"Symbol recovery / name inference", (img.symbols.size()+img.imports.size())?V::PASS:V::PARTIAL,
+                "symbols+imports recovered from ELF symtab/dynsym ("+std::to_string(img.symbols.size())+"+"+std::to_string(img.imports.size())+")");
+            rec(78,'E',"Dependency resolver / library ID", img.imports.empty()?V::FAIL:V::PARTIAL,
+                "imported symbols listed (library grouping pending)");
+            rec(88,'F',"Common binary formats", V::PARTIAL, "ELF64 + PE64 load & run; Mach-O not yet");
+        } else {
+            rec(1,'A',"Automated import analysis", V::PARTIAL, "ELF/PE import parsing implemented; no system ELF found to verify here");
+            rec(3,'A',"Section header analysis", V::PARTIAL, "ELF/PE section parsing implemented");
+            rec(77,'E',"Symbol recovery / name inference", V::PARTIAL, "ELF symtab/dynsym recovery implemented");
+            rec(78,'E',"Dependency resolver / library ID", V::PARTIAL, "imports listed");
+            rec(88,'F',"Common binary formats", V::PARTIAL, "ELF64 + PE64; Mach-O pending");
+        }
+    }
     // 9: data-flow / who-wrote
     {
         auto s = fresh({0x48,0xC7,0xC0,0x11,0,0,0, 0x48,0x89,0x04,0x25,0,0,0x07,0, 0xF4});
@@ -238,8 +264,6 @@ int main(int argc, char** argv) {
     run_dynamic_checks();
 
     // --- static capability verdicts (feature present / close analog) --------
-    rec(1,'A',"Automated import analysis", V::NA, "flat x86-64 image; no PE/ELF import table (loader out of scope)");
-    rec(3,'A',"Section header analysis", V::PARTIAL, "no PE sections, but memory_map() shows mapped regions + perms");
     rec(7,'A',"Function prologue/boundary ID", V::PARTIAL, "CFG/call-graph recover function blocks; no prologue-signature pass");
     rec(10,'A',"Dead-code identification", V::PARTIAL, "CFG reachability exposes unreached blocks; no auto-prune");
     rec(11,'A',"Constant folding / opt detection", V::FAIL, "linear decompiler fallback; no optimization modelling");
@@ -287,8 +311,6 @@ int main(int argc, char** argv) {
     rec(74,'E',"Graph query language", V::PARTIAL, "CFG/call-graph queryable in code; no end-user query DSL");
     rec(75,'E',"Data export / integration", V::PARTIAL, "CFG & architecture DOT, session save/load; JSON export pending");
     rec(76,'E',"Cross-binary diff", V::FAIL, "not implemented");
-    rec(77,'E',"Symbol recovery / name inference", V::PARTIAL, "manual symbol table + annotations; no auto-recovery");
-    rec(78,'E',"Dependency resolver / library ID", V::NA, "no import table (flat image)");
     rec(79,'E',"Resource extraction (.rsrc)", V::NA, "PE resource section out of scope");
     rec(80,'E',"Cross-tool database import (IDA)", V::NA, "no IDB/BNDB import");
     rec(81,'E',"Incremental analysis / caching", V::PARTIAL, "Flyweight decode cache; no persisted analysis DB");
@@ -297,7 +319,6 @@ int main(int argc, char** argv) {
     rec(85,'E',"Reporting / documentation generation", V::PASS, "this harness emits a Markdown report; CFG/arch DOT exports");
     rec(86,'F',"Workflow efficiency (<30 min)", V::PASS, "load->analyze->report is seconds for flat binaries");
     rec(87,'F',"Learning curve / documentation", V::PASS, "README + TUTORIAL (tiers 1-5) + ARCHITECTURE/PATTERNS/TRANSPARENCY docs");
-    rec(88,'F',"Common binary formats (PE/ELF/Mach-O)", V::NA, "flat-image loader only; format loaders are future work");
     rec(89,'F',"Architecture support", V::PARTIAL, "x86-64 today; Abstract-Factory seam ready for more");
     rec(90,'F',"Large-binary performance", V::PARTIAL, "COW memory + caches; not yet validated at >500MB");
     rec(91,'F',"Plugin / extension ecosystem", V::PARTIAL, "IDetector + backend/decompiler factories; no dynamic plugin loader");

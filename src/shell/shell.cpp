@@ -115,6 +115,9 @@ bool Shell::execute(const std::string& line) {
             "  opcodes [addr] [n]       instruction-frequency histogram\n"
             "  strings <addr> <len>     extract ASCII strings\n"
             "  capture on|off|list      capture guest syscalls/probes (Wireshark-style)\n"
+            "  info                     image format, sections, imports, symbols\n"
+            "  sections                 list loaded sections\n"
+            "  imports [filter]         list imported (undefined) symbols\n"
             "  step [n] | s             step n instructions\n"
             "  back [n] | sb            step back n instructions (time-travel)\n"
             "  run | c                  run until breakpoint/halt\n"
@@ -498,6 +501,34 @@ bool Shell::execute(const std::string& line) {
         for (const auto& n : g.funcs) out_ << "  sub_" << std::hex << n.entry << std::dec
                                            << annotate(n.entry) << " (" << n.blocks << " blocks)\n";
         for (const auto& c : g.calls) out_ << "  " << hex(c.first) << " -> " << hex(c.second) << "\n";
+        return true;
+    }
+
+    if (cmd == "info") {
+        out_ << "format: " << s_.image_format() << "   entry/rip: " << hex(s_.rip())
+             << "   arch: x86-64\n";
+        out_ << "sections: " << s_.sections().size() << "   imports: " << s_.imports().size()
+             << "   symbols: " << s_.symbols().size() << "\n";
+        auto t = s_.timeline_stats();
+        out_ << "tick " << t.now << "/" << t.max << "   phase: " << s_.phase_name()
+             << "   transparency: " << (s_.transparency_enabled() ? "on" : "off") << "\n";
+        return true;
+    }
+    if (cmd == "sections" || cmd == "sec") {
+        for (const auto& s : s_.sections())
+            out_ << "  " << hex(s.addr) << "  " << std::setw(10) << std::left << s.name
+                 << " size=" << hex(s.size) << "  "
+                 << ((s.perms & perm::R) ? 'r' : '-') << ((s.perms & perm::W) ? 'w' : '-')
+                 << ((s.perms & perm::X) ? 'x' : '-') << "\n";
+        out_ << s_.sections().size() << " section(s)\n";
+        return true;
+    }
+    if (cmd == "imports" || cmd == "imp") {
+        std::string filt = tok.size() >= 2 ? tok[1] : "";
+        std::size_t shown = 0;
+        for (const auto& im : s_.imports())
+            if (filt.empty() || im.find(filt) != std::string::npos) { out_ << "  " << im << "\n"; ++shown; }
+        out_ << shown << " / " << s_.imports().size() << " import(s)\n";
         return true;
     }
 
