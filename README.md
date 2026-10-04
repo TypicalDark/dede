@@ -53,6 +53,10 @@ Everything below runs and is covered by tests — build it and try the demo.
 - **Self-scoring** — `dede-eval` runs dede against a 150-point RE-tool
   effectiveness suite and writes [docs/EFFECTIVENESS_REPORT.md](docs/EFFECTIVENESS_REPORT.md).
 
+An honest, side-by-side feature comparison against Ghidra, IDA Pro, Binary Ninja
+and x64dbg — where dede leads, where it is behind, and why — is in
+[docs/COMPARISON.md](docs/COMPARISON.md).
+
 ## The scenario it is built around
 
 `dede-decrypt-demo` runs the whole design end to end: a self-decrypting stub
@@ -126,10 +130,11 @@ src/<lib>/            implementations (common, disasm, core, replay, transparenc
                       macro, analysis, decompiler, introspection, session, script,
                       shell, samples, gui, emu_host)
 apps/                 dede (REPL), dede-decrypt-demo, dede-eval, dede-bench,
-                      dede-forge, dede-gui
+                      dede-forge, dede-shot (SVG workspace render), dede-gui
 tests/                a dependency-free harness; 14 suites + the effectiveness run
 docs/                 ARCHITECTURE · PATTERNS · TRANSPARENCY · NETWORK_CAPTURE ·
-                      DESIGN_REVIEW · EFFECTIVENESS_REPORT · LICENSING · TUTORIAL
+                      DESIGN_REVIEW · EFFECTIVENESS_REPORT · LICENSING · TUTORIAL ·
+                      GUI · COMPARISON
 ```
 
 ## Status

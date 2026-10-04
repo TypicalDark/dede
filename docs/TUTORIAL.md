@@ -18,6 +18,38 @@ Every sample loads at guest address `0x1000`, which is where `rip` starts.
 
 ---
 
+## Prelude — loading a real binary · *the loader & image views*
+
+Before the synthetic tiers, note that dede also opens **real ELF64 / PE64
+files**. On the command line, `./build/dede /bin/true` auto-detects the format;
+inside the shell, use `open` (the `load`/`save` commands are for dede *session*
+snapshots, not binaries):
+
+```
+dede> open /bin/true
+opened /bin/true [elf64] entry=0x19f0, 26 section(s), 0 symbol(s), 45 import(s)
+dede> info
+format: elf64   entry/rip: 0x19f0   arch: x86-64
+sections: 26   imports: 45   symbols: 0
+tick 0/0   phase: paused   transparency: off
+dede> sections
+  0x318  .interp    size=0x1c  r--
+  ...
+  0x1480  .text      size=0x2a22  r-x
+  ...
+dede> imports GLIBC                 # filter the import list
+  __libc_start_main
+  ...
+```
+
+`open` maps each `PT_LOAD` segment at its real virtual address with real
+permissions, imports the symbol table, and records sections and the imports
+(undefined symbols). From there `dis 0x1480`, `scan`, `cfg`, `entropy` and the
+rest work exactly as they do on the tiers below. The tiers themselves are flat
+blobs, which is why they live at `0x1000` with a scratch RWX region.
+
+---
+
 ## Tier 1 — arithmetic loop · *the basics*
 
 **Teaches:** `dis`, `step`, `regs`, `bp`, `run`, `where`, `cfg`.
@@ -165,6 +197,66 @@ engine.bind_macro(id, m);
 engine.run();     // the syscall now "returns" 0x1337 — and because the edit is an
                   // injected event, seek(0) then replay reproduces it exactly.
 ```
+
+---
+
+## Beyond the tiers — deeper static & dynamic analysis
+
+The same commands apply to any loaded image. A few that round out an
+investigation (all shown here on tier 1):
+
+**Profile** — after running, which addresses ran hottest (the loop body stands
+out):
+
+```
+dede> run
+dede> profile 5
+executed 19 instructions; hottest addresses:
+  0x100e  x5          # add rax, rcx   — the loop
+  0x1011  x5          # dec rcx
+  0x1014  x5          # jne 0x100e
+  0x1016  x2          # hlt
+  0x1000  x1
+```
+
+**Hash** a region (sample identity / integrity — CRC-32 and FNV-1a):
+
+```
+dede> hash 0x1000 24
+crc32  = 0xf4ca691d
+fnv1a  = 0x897853bb740b7ef1
+```
+
+**Dead code** — instructions a linear sweep decodes but control flow never
+reaches (here, the zero padding after the `hlt`):
+
+```
+dede> deadcode 0x1000 40
+8 unreachable instruction(s) in [0x1000..+40):
+  0x1017
+  ...
+```
+
+**Recursion** flags cycles in the call graph; **export** writes the CFG, call
+graph, or scan findings as JSON for other tools; **diff** byte-compares the live
+image against another file (handy for before/after unpacking):
+
+```
+dede> export callgraph 0x1000 cg.json
+wrote 48 bytes to cg.json            # {"funcs":[{"entry":4096,"blocks":3}],"calls":[]}
+dede> diff tier2.bin
+compared 20 bytes vs tier2.bin [flat]: 13 differ (first at 0x1003)
+```
+
+See `help` for the full command list, including `opcodes`, `strings`, `search`,
+`watch`, and `who` (the time-travel "who last wrote this address?" query).
+
+## The GUI
+
+Every command above is also a panel in the optional Vulkan/ImGui workspace, which
+drives the *same* engine. [docs/GUI.md](GUI.md) is a visual tour — disassembly,
+registers, the live control-flow graph, the timeline scrubber, and an event trace
+that catches self-modifying code in the act — with rendered views of each.
 
 ---
 
