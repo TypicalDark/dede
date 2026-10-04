@@ -119,6 +119,8 @@ if(DEDE_WITH_GUI)
     ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
   target_include_directories(dede_imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${GLFW3_INCLUDE_DIRS})
   target_link_libraries(dede_imgui PUBLIC Vulkan::Vulkan ${GLFW3_LIBRARIES})
+  # Vendored third-party code is not held to our -Wall -Wextra -Werror.
+  target_compile_options(dede_imgui PRIVATE -w)
 
   dede_library(dede_gui SRCS src/gui/workspace.cpp DEPS dede_session dede_script dede_shell dede_analysis dede_imgui)
 

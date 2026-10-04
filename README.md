@@ -37,7 +37,20 @@ Everything below runs and is covered by tests — build it and try the demo.
   bare-metal environment (no hypervisor bit, smooth deterministic TSC, …).
 - **Decompiler** — a linear-pseudocode fallback (Ghidra-native slots in behind a
   build option); **disassembler** and **assembler** for viewing and patching.
+- **Static analysis** — control-flow graph (`cfg`), program call graph, Shannon
+  entropy, opcode-frequency anomalies, string extraction, cyclomatic complexity,
+  and a pluggable protection detector (`scan`: anti-vm / anti-debug / timing /
+  crypto).
+- **Capture / MITM** — a Wireshark/Charles analog for an emulated target: capture
+  and dissect the guest's syscalls/probes (`capture`), and rewrite a syscall's
+  args/return via a run point + macro, replay-safe ([docs/NETWORK_CAPTURE.md](docs/NETWORK_CAPTURE.md)).
+- **QoL** — symbols, memory search, stack telescope, watchpoints, who-last-wrote
+  (time-travel data query), session save/load, command history, aliases.
 - **Shell** — an interactive REPL driving everything through one engine interface.
+- **GUI** — an optional Vulkan + Dear ImGui desktop workspace (same engine
+  interface), with a CFG graph view, timeline scrubber, and embedded console.
+- **Self-scoring** — `dede-eval` runs dede against a 150-point RE-tool
+  effectiveness suite and writes [docs/EFFECTIVENESS_REPORT.md](docs/EFFECTIVENESS_REPORT.md).
 
 ## The scenario it is built around
 
@@ -72,18 +85,24 @@ copyleft backends (Unicorn, Ghidra-native, Luau, asmjit, LibVMI) are build
 options, default `OFF` — see [docs/LICENSING.md](docs/LICENSING.md) for why.
 
 ```sh
-# Debian/Ubuntu: sudo apt-get install libcapstone-dev cmake ninja-build clang
-cmake -S . -B build -G Ninja
-ninja -C build
-ctest --test-dir build --output-on-failure
+./build.sh deps        # apt-get the dependencies (add --with-gui for the Vulkan UI)
+./build.sh test        # configure, build, and run the test suite
+# or by hand: cmake -S . -B build -G Ninja && ninja -C build && ctest --test-dir build
 ```
 
 Then:
 
 ```sh
+./build/dede-forge /tmp          # write the 5 tutorial samples (see docs/TUTORIAL.md)
+./build/dede /tmp/tier1.bin      # interactive shell; `help` lists commands
 ./build/dede-decrypt-demo        # the end-to-end showcase
-./build/dede [flat-code-file]    # interactive shell; `help` lists commands
+./build/dede-eval                # score against the 150-point effectiveness suite
+./build/dede-bench               # hot-path micro-benchmark
+./build.sh gui /tmp/tier5.bin    # the Vulkan desktop UI (needs a display)
 ```
+
+New here? Start with **[docs/TUTORIAL.md](docs/TUTORIAL.md)** — five tiers from a
+plain loop to a self-decrypting, anti-analysis, syscall-making sample.
 
 A quick shell session:
 
@@ -102,23 +121,28 @@ dede> timeline             # ring/snapshot/injected stats
 
 ```
 include/dede/<lib>/   public headers, one folder per subsystem
-src/<lib>/            implementations (common, disasm, core, replay,
-                      transparency, macro, decompiler, introspection,
-                      session, script, shell, emu_host)
-apps/                 dede (REPL) and dede-decrypt-demo
-tests/                a dependency-free harness; 30 cases across 7 suites
-docs/                 ARCHITECTURE.md, PATTERNS.md, LICENSING.md
+src/<lib>/            implementations (common, disasm, core, replay, transparency,
+                      macro, analysis, decompiler, introspection, session, script,
+                      shell, samples, gui, emu_host)
+apps/                 dede (REPL), dede-decrypt-demo, dede-eval, dede-bench,
+                      dede-forge, dede-gui
+tests/                a dependency-free harness; 14 suites + the effectiveness run
+docs/                 ARCHITECTURE · PATTERNS · TRANSPARENCY · NETWORK_CAPTURE ·
+                      DESIGN_REVIEW · EFFECTIVENESS_REPORT · LICENSING · TUTORIAL
 ```
 
 ## Status
 
-~5k lines of C++20. The design (companion doc) describes a six-phase build;
-this tree delivers the first three phases working end to end — core + shell, time
-travel, and macros/run points — plus the transparency layer and a decompiler
-fallback, with every external library (Unicorn, Ghidra-native, Luau, asmjit,
-LibVMI) behind a clean adapter ready to be switched on. The two hardest pieces the
-design calls out — **deterministic replay** and the **transparency layer** — are
-proven on small samples, as recommended.
+The design (companion doc) describes a six-phase build; this tree delivers the
+first three phases end to end — core + shell, time travel, and macros/run points —
+plus the transparency layer, static analysis (CFG/call-graph/scan), a
+capture/MITM layer, an optional Vulkan GUI, and a decompiler fallback, with every
+heavy external library (Unicorn, Ghidra-native, Luau, asmjit, LibVMI) behind a
+clean adapter ready to switch on. The two hardest pieces the design calls out —
+**deterministic replay** and the **transparency layer** — are proven on small
+samples. `dede-eval` scores the tool honestly against a 150-point RE-effectiveness
+suite and names the in-scope gaps (a decompiler backend, a fault-delivery channel,
+richer capture dissection) as the forward roadmap.
 
 ## License
 

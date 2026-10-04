@@ -256,8 +256,8 @@ void Workspace::draw_hex() {
         for (int row = 0; row < 32; ++row) {
             Addr base = hex_addr_ + row * 16;
             std::string line, ascii;
-            char ab[8];
-            std::snprintf(ab, sizeof ab, "%08llx", (unsigned long long)base);
+            char ab[20];
+            std::snprintf(ab, sizeof ab, "%012llx", (unsigned long long)base);
             for (int col = 0; col < 16; ++col) {
                 auto b = e_.read_mem(base + col, 1);
                 char h[4];
