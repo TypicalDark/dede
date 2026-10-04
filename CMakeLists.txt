@@ -81,6 +81,8 @@ endif()
 
 dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp src/analysis/scan.cpp DEPS dede_disasm)
 
+dede_library(dede_samples SRCS src/samples/tiers.cpp DEPS dede_common)
+
 dede_library(dede_introspection SRCS src/introspection/introspector.cpp DEPS dede_common)
 if(DEDE_WITH_LIBVMI)
   target_compile_definitions(dede_introspection PUBLIC DEDE_WITH_LIBVMI)
@@ -138,10 +140,13 @@ target_link_libraries(dede-bench PRIVATE dede_session)
 add_executable(dede-eval apps/eval.cpp)
 target_link_libraries(dede-eval PRIVATE dede_session dede_analysis)
 
+add_executable(dede-forge apps/forge.cpp)
+target_link_libraries(dede-forge PRIVATE dede_samples)
+
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)
@@ -149,5 +154,6 @@ if(DEDE_BUILD_TESTS)
   endforeach()
   # Guard the effectiveness harness and its hot-path checks: it must run all
   # dynamic engine checks without crashing and exit 0.
+  target_link_libraries(test_tiers PRIVATE dede_samples)
   add_test(NAME effectiveness COMMAND dede-eval ${CMAKE_BINARY_DIR}/effectiveness-report.md)
 endif()
