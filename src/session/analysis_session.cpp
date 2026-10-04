@@ -85,6 +85,24 @@ Result<void> AnalysisSession::step_back(Tick n) {
 }
 
 Result<void> AnalysisSession::seek(Tick tick) {
+    // Forward into unexplored territory must go through the full step pipeline so
+    // run points and mutating macros fire (and get injected); only backward / within
+    // the explored timeline is a silent memento replay.
+    if (tick > timeline_.max_tick()) {
+        set_phase(Phase::Running);
+        if (timeline_.now() != timeline_.max_tick()) {
+            if (auto r = timeline_.seek(timeline_.max_tick()); !r) { set_phase(Phase::Paused); return r; }
+        }
+        while (core_.tick() < tick) {
+            StepOutcome o = step();  // core.step + fire_pending + record
+            if (o.status != StepOutcome::Status::Ok) {
+                set_phase(Phase::Paused);
+                return make_error("seek: execution stopped (" + o.note + ") before the target tick");
+            }
+        }
+        set_phase(Phase::Paused);
+        return {};
+    }
     set_phase(Phase::Replaying);
     auto r = timeline_.seek(tick);
     set_phase(Phase::Paused);

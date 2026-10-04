@@ -17,6 +17,10 @@ void TimelineManager::begin() {
 
 void TimelineManager::record() {
     Tick t = core_.tick();
+    // Idempotent per tick: a non-retiring step (Unsupported/Fault) leaves the tick
+    // unchanged, and recording again would put two mementos at the same tick and
+    // break the "one contiguous memento per tick" invariant ring_lookup relies on.
+    if (!ring_.empty() && ring_.back().tick() == t) return;
     StateMemento m = core_.snapshot();
     ring_.push_back(m);
     if (ring_.size() > cfg_.ring_capacity) ring_.pop_front();

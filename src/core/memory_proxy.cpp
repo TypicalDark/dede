@@ -25,7 +25,7 @@ Result<void> MemoryProxy::write(Addr a, unsigned bytes, u64 v) {
     return {};
 }
 
-Result<std::vector<u8>> MemoryProxy::fetch(Addr a, unsigned len) {
+Result<unsigned> MemoryProxy::fetch(Addr a, u8* buf, unsigned len) {
     u64 pg = page_of(a);
     if (auto it = written_pages_.find(pg); it != written_pages_.end()) {
         written_pages_.erase(it);  // re-arms only after the next write
@@ -34,14 +34,14 @@ Result<std::vector<u8>> MemoryProxy::fetch(Addr a, unsigned len) {
     }
     // Fetch may run off the end of mapped memory near a boundary; read what we
     // can (at least one byte) so the decoder gets a chance.
-    std::vector<u8> out;
-    for (unsigned i = 0; i < len; ++i) {
-        auto b = mem_.read8(a + i);
+    unsigned n = 0;
+    for (; n < len; ++n) {
+        auto b = mem_.read8(a + n);
         if (!b) break;
-        out.push_back(b.value());
+        buf[n] = b.value();
     }
-    if (out.empty()) return make_error("fetch: unmapped instruction pointer");
-    return out;
+    if (n == 0) return make_error("fetch: unmapped instruction pointer");
+    return n;
 }
 
 }  // namespace dede

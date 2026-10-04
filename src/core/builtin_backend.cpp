@@ -14,6 +14,7 @@
 // the core cleanly with an Unsupported event rather than silently misbehaving.
 #include <array>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 #include "dede/core/backend.hpp"
@@ -83,10 +84,11 @@ public:
     StepOutcome step(CpuState& cpu, MemoryProxy& mem, ITransparency& tr, IEventSink& sink,
                      const ExecContext& ctx) override {
         Addr pc = cpu.rip();
-        auto bytes = mem.fetch(pc, 15);
-        if (!bytes) return fault(sink, pc, ctx.tick, bytes.message());
+        std::array<u8, 15> code;
+        auto nread = mem.fetch(pc, code.data(), static_cast<unsigned>(code.size()));
+        if (!nread) return fault(sink, pc, ctx.tick, nread.message());
 
-        auto insn = cache_.at(bytes.value().data(), bytes.value().size(), pc);
+        auto insn = cache_.at(code.data(), nread.value(), pc);
         if (!insn) return unsupported(sink, pc, ctx.tick, "undecodable bytes");
 
         const DecodedInsn& in = *insn;
@@ -96,7 +98,16 @@ public:
 
         Addr next = in.addr + in.size;
         Exec e{cpu, mem, tr, sink, in, next, ctx.tick};
-        StepOutcome r = dispatch(e);
+        // Safety net: a decode/model operand-count mismatch (e.g. an instruction
+        // form we don't expect) must degrade to Unsupported, never crash the tool
+        // on a hostile sample.
+        StepOutcome r;
+        try {
+            r = dispatch(e);
+        } catch (const std::exception& ex) {
+            return unsupported(sink, pc, ctx.tick,
+                               std::string("internal: ") + ex.what() + " on " + in.text());
+        }
         if (r.status == StepOutcome::Status::Ok && !e.branched) cpu.set_rip(next);
         return r;
     }
@@ -455,8 +466,26 @@ private:
 
     StepOutcome imul(Exec& e) {
         auto& ops = e.in.operands;
-        unsigned bytes = opsize(ops.at(0));
+        if (ops.empty()) return unsupported(e.sink, e.in.addr, e.tick, "imul with no operands");
+        unsigned bytes = opsize(ops[0]);
         __int128 lhs = 0, rhs = 0;
+
+        if (ops.size() == 1) {  // one-operand: rdx:rax = rax * r/m
+            auto s = read_op(e, ops[0]);
+            if (!s) return fault(e.sink, e.in.addr, e.tick, s.message());
+            lhs = (__int128)(i64)sign_extend(e.cpu.read(Reg::Rax, static_cast<Width>(bytes)), bytes);
+            rhs = (__int128)(i64)sign_extend(s.value(), bytes);
+            __int128 full = lhs * rhs;
+            unsigned bits = bytes * 8;
+            u64 lo = (u64)full & mask_bytes(bytes);
+            u64 hi = (u64)(full >> bits) & mask_bytes(bytes);
+            e.cpu.write(Reg::Rax, static_cast<Width>(bytes), lo);
+            e.cpu.write(Reg::Rdx, static_cast<Width>(bytes), hi);
+            bool of = (hi != ((i64)lo < 0 ? mask_bytes(bytes) : 0));
+            e.cpu.set_flag(flags::CF, of);
+            e.cpu.set_flag(flags::OF, of);
+            return ok();
+        }
         if (ops.size() == 3) {
             auto s = read_op(e, ops[1]); auto i = read_op(e, ops[2]);
             if (!s) return fault(e.sink, e.in.addr, e.tick, s.message());
@@ -464,7 +493,7 @@ private:
             lhs = (__int128)(i64)sign_extend(s.value(), opsize(ops[1]));
             rhs = (__int128)(i64)sign_extend(i.value(), opsize(ops[2]));
         } else {  // 2-operand: dst *= src
-            auto d = read_op(e, ops[0]); auto s = read_op(e, ops.at(1));
+            auto d = read_op(e, ops[0]); auto s = read_op(e, ops[1]);
             if (!d) return fault(e.sink, e.in.addr, e.tick, d.message());
             if (!s) return fault(e.sink, e.in.addr, e.tick, s.message());
             lhs = (__int128)(i64)sign_extend(d.value(), bytes);

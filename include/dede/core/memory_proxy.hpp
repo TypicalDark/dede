@@ -28,10 +28,11 @@ public:
     Result<u64> read(Addr a, unsigned bytes);
     Result<void> write(Addr a, unsigned bytes, u64 v);
 
-    // Instruction fetch. Does not emit a data event, but detects W^X: if the
-    // fetched page was written since it was last executed, emits
-    // ExecWrittenPage (and re-arms only after the next write to that page).
-    Result<std::vector<u8>> fetch(Addr a, unsigned len);
+    // Instruction fetch into a caller-provided buffer (no per-instruction heap
+    // allocation on the hot path). Returns the number of bytes read. Does not emit
+    // a data event, but detects W^X: if the fetched page was written since it was
+    // last executed, emits ExecWrittenPage (re-arming only after the next write).
+    Result<unsigned> fetch(Addr a, u8* buf, unsigned len);
 
     // Silent access for tooling (snapshots, the shell's `x` command) that must
     // not perturb the observed event stream or W^X state.
