@@ -6,6 +6,8 @@
 #include <sstream>
 #include <vector>
 
+#include "dede/analysis/arch_view.hpp"
+
 namespace dede {
 namespace {
 
@@ -105,6 +107,7 @@ bool Shell::execute(const std::string& line) {
             "  x <addr> [n]             hexdump n bytes (default 64)\n"
             "  dis [addr] [n]           disassemble n instrs (default: at rip)\n"
             "  decompile <addr> <len>   decompile a byte range\n"
+            "  cfg [addr] [dot]         control-flow graph (code flow)\n"
             "  step [n] | s             step n instructions\n"
             "  back [n] | sb            step back n instructions (time-travel)\n"
             "  run | c                  run until breakpoint/halt\n"
@@ -186,6 +189,27 @@ bool Shell::execute(const std::string& line) {
             out_ << (in.addr == s_.rip() ? "=> " : (is_bp ? " * " : "   ")) << hex(in.addr)
                  << annotate(in.addr) << ":  " << in.text() << "\n";
         }
+        return true;
+    }
+
+    if (cmd == "cfg") {
+        Addr entry = tok.size() >= 2 ? arg_u64(1, s_.rip()) : s_.rip();
+        Cfg g = s_.build_cfg(entry);
+        if (tok.size() >= 3 && tok[2] == "dot") {
+            out_ << g.to_dot();
+            return true;
+        }
+        out_ << "CFG of " << hex(entry) << annotate(entry) << ": " << g.blocks.size()
+             << " blocks, " << g.edges.size() << " edges\n";
+        for (const auto& b : g.blocks) {
+            out_ << "  loc_" << std::hex << b.start << std::dec << annotate(b.start) << "  ("
+                 << b.insns.size() << " insns" << (b.terminates ? ", terminal" : "") << ")\n";
+            for (const auto& e : g.edges)
+                if (e.from == b.start)
+                    out_ << "      --" << to_string(e.kind) << "--> loc_" << std::hex << e.to
+                         << std::dec << "\n";
+        }
+        out_ << "(use 'cfg " << hex(entry) << " dot' for graphviz)\n";
         return true;
     }
 
@@ -413,6 +437,18 @@ bool Shell::execute(const std::string& line) {
         if (tok.size() < 2) { out_ << "usage: load <path>\n"; return true; }
         auto r = s_.load_session(tok[1]);
         out_ << (r ? "loaded " + tok[1] + "\n" : "error: " + r.message() + "\n");
+        return true;
+    }
+
+    if (cmd == "arch") {
+        if (tok.size() >= 2 && tok[1] == "dot") { out_ << architecture_dot(); return true; }
+        for (const auto& s : architecture()) {
+            out_ << "  " << s.name << "  [";
+            for (std::size_t i = 0; i < s.patterns.size(); ++i)
+                out_ << (i ? ", " : "") << s.patterns[i];
+            out_ << "]\n";
+        }
+        out_ << "(use 'arch dot' for a graphviz diagram)\n";
         return true;
     }
 

@@ -79,6 +79,8 @@ if(DEDE_WITH_GHIDRA)
   target_compile_definitions(dede_decompiler PUBLIC DEDE_WITH_GHIDRA)
 endif()
 
+dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp DEPS dede_disasm)
+
 dede_library(dede_introspection SRCS src/introspection/introspector.cpp DEPS dede_common)
 if(DEDE_WITH_LIBVMI)
   target_compile_definitions(dede_introspection PUBLIC DEDE_WITH_LIBVMI)
@@ -86,7 +88,7 @@ endif()
 
 dede_library(dede_session
   SRCS src/session/session_state.cpp src/session/analysis_session.cpp
-  DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection)
+  DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection dede_analysis)
 
 dede_library(dede_script
   SRCS src/script/null_engine.cpp src/script/luau_engine.cpp
@@ -107,7 +109,7 @@ target_link_libraries(dede-decrypt-demo PRIVATE dede_session)
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)

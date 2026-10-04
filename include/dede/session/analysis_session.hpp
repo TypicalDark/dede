@@ -87,6 +87,7 @@ public:
     // --- views ---------------------------------------------------------------
     std::vector<DecodedInsn> disassemble(Addr addr, std::size_t count) const override;
     Result<std::string> decompile(Addr addr, u64 len) override;
+    Cfg build_cfg(Addr entry) const override;
     IDisassembler& disassembler() { return core_.disassembler(); }
 
     // --- run points & macros -------------------------------------------------
@@ -119,6 +120,7 @@ public:
     }
     Result<void> save_session(const std::string& path) const override;
     Result<void> load_session(const std::string& path) override;
+    std::vector<Region> memory_map() const override;
 
     // --- introspection & timeline (UI-facing) --------------------------------
     IIntrospector& introspector() override { return *introspector_; }

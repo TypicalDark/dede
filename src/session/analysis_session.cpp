@@ -137,6 +137,16 @@ Result<std::string> AnalysisSession::decompile(Addr addr, u64 len) {
     return decompiler_->decompile(code.value(), addr);
 }
 
+Cfg AnalysisSession::build_cfg(Addr entry) const {
+    const GuestMemory& mem = core_.memory();
+    ByteReader read = [&mem](Addr a) -> std::optional<u8> {
+        auto b = mem.read8(a);
+        if (!b) return std::nullopt;
+        return b.value();
+    };
+    return dede::build_cfg(core_.disassembler(), read, entry);
+}
+
 u64 AnalysisSession::add_breakpoint(Addr addr, std::string label) {
     RunPoint rp;
     rp.type = RunPointType::Address;
@@ -271,6 +281,19 @@ Result<void> AnalysisSession::load_session(const std::string& path) {
     timeline_.begin();
     set_phase(Phase::Paused);
     return {};
+}
+
+std::vector<IAnalysisEngine::Region> AnalysisSession::memory_map() const {
+    std::vector<Region> out;
+    for (u64 base : core_.memory().mapped_pages()) {
+        u8 p = core_.memory().permissions(base);
+        if (!out.empty() && out.back().base + out.back().size == base && out.back().perms == p) {
+            out.back().size += kPageSize;  // coalesce contiguous same-perm pages
+        } else {
+            out.push_back({base, kPageSize, p});
+        }
+    }
+    return out;
 }
 
 void AnalysisSession::enable_transparency(ForgedEnvironment env) {

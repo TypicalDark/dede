@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "dede/analysis/cfg.hpp"              // Cfg
 #include "dede/core/backend.hpp"              // StepOutcome
 #include "dede/disasm/instruction.hpp"        // DecodedInsn
 #include "dede/introspection/introspector.hpp"
@@ -26,6 +27,11 @@ namespace dede {
 
 class IAnalysisEngine : public IDebugController {
 public:
+    struct Region {
+        Addr base = 0;
+        u64 size = 0;
+        u8 perms = 0;
+    };
     struct TimelineStats {
         Tick now = 0;
         Tick max = 0;
@@ -50,6 +56,8 @@ public:
     // --- views ---------------------------------------------------------------
     virtual std::vector<DecodedInsn> disassemble(Addr addr, std::size_t count) const = 0;
     virtual Result<std::string> decompile(Addr addr, u64 len) = 0;
+    // Control-flow graph of the function at `entry`, from the live byte image.
+    virtual Cfg build_cfg(Addr entry) const = 0;
 
     static constexpr u64 kRunForever = (1u << 22);
 
@@ -85,6 +93,8 @@ public:
     virtual std::optional<Event> who_wrote(Addr addr, unsigned size = 1) const = 0;
     virtual Result<void> save_session(const std::string& path) const = 0;
     virtual Result<void> load_session(const std::string& path) = 0;
+    // Mapped memory regions (coalesced contiguous same-perm pages), ascending.
+    virtual std::vector<Region> memory_map() const = 0;
 
     // --- introspection & timeline -------------------------------------------
     virtual IIntrospector& introspector() = 0;
