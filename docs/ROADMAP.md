@@ -121,7 +121,7 @@ Deduplicated across the four tools (many gaps recur). **Feasible** = fits dede's
 | **22 Inline-function detection** | **achievable-large** | clone detection via normalized-hash clustering; → **PARTIAL** (Batch 4) |
 | **80 Cross-tool DB import** | **achievable-large** | a JSON interchange + IDAPython/BN exporter snippets (BNDB=SQLite later; IDB research); → **PARTIAL** (Batch 7) |
 | 14 Macro expansion · 27 Lambda/closure · 28 Macro-param subst. | **out-of-scope** | erased by the preprocessor/front-end before codegen; no residue in machine code |
-| 45 Multi-threaded debugging | **out-of-scope** | single-threaded deterministic core |
+| **45 Multi-threaded debugging** | **achievable-large** | now planned via **Batch 9** deterministic multi-context scheduling (rr-style); → PARTIAL+ (threads + processes debuggable under a recorded schedule) |
 | 92 Community · 95 Update/LTS | **out-of-scope** | adoption/process metrics, not engine code |
 | **101–130, 135–149 (45 rows) Legacy PE/Windows/DRM** | **out-of-scope (theme)** | one duplicated OS/format-specific-static-tooling theme; Batch 2 picks up the generic PE depth, the DRM-wrapper specifics stay out |
 
@@ -275,20 +275,55 @@ intercepted, ELF already parsed)
   the alloc tracker shows `mmap` regions; time-travel + replay work; a fixture test asserts the
   syscall results + behavioral log; a glibc `hello`-style ELF reaches its `write`.
 
-**Shared completion / out of this batch's scope:** the behavioral trace (API/syscall log) is a
-time-travel-visible event stream and MITM can feed fake file/registry/network responses, all
-deterministically replayable. **Out of scope within Batch 9:** multithreading (single-threaded
-core), ring-0/kernel drivers, a GUI subsystem, and real external side effects (forged/MITM'd,
-never actually touching the host FS/registry/network).
+**Concurrency & multi-process — deterministic scheduling** (the rr / WinDbg-TTD model: run one
+context at a time under a *deterministic* scheduler and record the schedule, so replay is
+bit-identical — concurrency without giving up determinism or time-travel). This extends the
+core's state model from one register file + one address space to **N contexts**.
+- **T9.5 Multi-context core + deterministic scheduler** — generalize the core to hold a set of
+  execution contexts (each its own `CpuState` + per-thread stack/TLS; one COW address space per
+  process, shared by its threads). A cooperative scheduler steps one runnable context at a time,
+  switching at deterministic points (blocking syscall, a fixed instruction quantum, or an
+  explicit yield) and **records the chosen schedule into the timeline** so `seek`/replay
+  reproduce the exact interleaving. Snapshots capture *all* contexts so time-travel restores the
+  whole world. _Done:_ two cooperatively-scheduled contexts run to completion under a recorded
+  schedule; `seek(tick)` + replay reproduce the identical interleaving bit-for-bit; stepping
+  back crosses a context switch correctly.
+- **T9.6 Thread creation + lifecycle** — model `CreateThread`/`NtCreateThreadEx` (Win) and
+  `clone`/`pthread_create` (Linux, via the T9.L1 syscall set) as spawning a new thread context
+  in the current address space with its own stack + TLS base; handle thread exit/join; expose a
+  `threads` view (id, state, rip, call stack per thread via the Batch-1/Batch-5 unwinder).
+  _Done:_ a sample that spawns 2 worker threads touching shared memory runs deterministically;
+  `threads` lists all three with correct per-thread call stacks; a different (still
+  deterministic) schedule can be selected to surface an order-dependent bug, then replayed.
+- **T9.7 Process creation + IPC** — model `CreateProcessW`/`fork`+`execve` as spawning a new
+  **process context** (fresh address space; `fork` = COW-clone of the parent's space), tracked
+  with a pid/handle; model inherited handles and the common IPC channels the OS-env shim already
+  mediates (pipes, shared sections/`mmap`, stdio) so parent↔child data flow is observable and
+  MITM-able. _Done:_ a parent that spawns a child which writes to an inherited pipe runs to
+  completion; both processes appear in a `processes` view with their own memory maps; the
+  cross-process write is captured on the behavioral trace; time-travel restores both processes.
+
+**Shared completion / out of this batch's scope:** the behavioral trace (API/syscall log, thread
+switches, process spawns) is a time-travel-visible event stream and MITM can feed fake file/
+registry/network responses, all deterministically replayable. Concurrency is modeled by
+deterministic *serialized* scheduling (dede explores and reproduces specific interleavings — it
+does not run contexts in true parallel on host cores, which is what keeps replay exact). **Out
+of scope within Batch 9:** true parallel/preemptive execution on multiple host cores, faithful
+reproduction of a *specific real-hardware* race timing (dede picks and records a deterministic
+schedule instead), ring-0/kernel-driver execution, a GUI subsystem, and real external side
+effects (forged/MITM'd, never actually touching the host FS/registry/network).
 
 ### Explicitly out of scope (documented, not planned)
-Multi-architecture beyond x86-64 · live/remote attach to real processes · **multi-threaded
-debugging** · **ring-0 / kernel-driver execution** (the real blocker in the legacy PE/DRM
-theme) · a GUI/windowing subsystem · real host side effects (dede forges/MITMs them) ·
-collaboration server · source-only constructs (#14 macros, #27 lambdas, #28 macro-params) ·
-the vendor-specific commercial-DRM-wrapper specifics of the 45-row legacy theme. (Note: generic
-PE depth is covered by Batch 2, and generic **user-mode** Windows/Linux execution — the part of
-"analyze Windows/Linux malware" that is in charter — is now **Batch 9**; only the ring-0/DRM
+Multi-architecture beyond x86-64 · live/remote attach to real processes · **true parallel /
+preemptive execution on multiple host cores** (dede models multi-thread + multi-process via a
+*deterministic serialized scheduler* in Batch 9 — exact reproduction of a specific real-hardware
+race timing is what stays out) · **ring-0 / kernel-driver execution** (the real blocker in the
+legacy PE/DRM theme) · a GUI/windowing subsystem · real host side effects (dede forges/MITMs
+them) · collaboration server · source-only constructs (#14 macros, #27 lambdas, #28
+macro-params) · the vendor-specific commercial-DRM-wrapper specifics of the 45-row legacy theme.
+(Note: generic PE depth is covered by Batch 2; generic **user-mode** Windows/Linux execution —
+*including deterministic multithreading and process creation* — is now **Batch 9**; only the
+ring-0/DRM
 tail stays out.)
 
 ---
