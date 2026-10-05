@@ -29,7 +29,11 @@ dede's scope).
 |---|:--:|:--:|:--:|:--:|:--:|
 | **Disassembly** (x86-64) | ✅ (Capstone) | ✅ | ✅ | ✅ | ✅ (Zydis) |
 | Multi-architecture | ⬚ x86-64 only | ✅ 20+ | ✅ 60+ | ✅ many | ⬚ x86/x64 |
-| **Decompiler / pseudo-C** | ◐ basic fallback | ✅ excellent | ✅ best-in-class | ✅ multi-level IL | ◐ via plugin |
+| **Decompiler / pseudo-C** | ◐ native IR pipeline | ✅ excellent | ✅ best-in-class | ✅ multi-level IL | ◐ via plugin |
+| &nbsp;&nbsp;↳ Control-flow structuring (if/else, loops, switch) | ✅ (Phoenix-style, goto-minimizing) | ✅ | ✅ | ✅ | ⬚ |
+| &nbsp;&nbsp;↳ Switch / jump-table recovery | ✅ (live-image table read) | ✅ | ✅ | ✅ | ⬚ |
+| &nbsp;&nbsp;↳ Type inference (reg/stack → typed C) | ◐ (TIE-style lattice) | ✅ | ✅ | ✅ | ⬚ |
+| &nbsp;&nbsp;↳ Bitfield reconstruction | ◐ (BITFIELD intrinsic) | ✅ | ✅ | ◐ | ⬚ |
 | Static CFG / code-flow graph | ✅ | ✅ | ✅ | ✅ | ◐ |
 | Call graph | ✅ | ✅ | ✅ | ✅ | ◐ |
 | Strings / entropy / opcode stats | ✅ | ✅ | ◐ | ◐ | ◐ |
@@ -96,19 +100,28 @@ lack them or reach them through an external component:
 
 No spin — these are real gaps, most of them inherent to dede's scope:
 
-- **Decompiler quality.** dede's pseudo-C is a readable fallback. Hex-Rays,
-  Ghidra's decompiler and Binary Ninja's HLIL are the products of many
-  engineer-years and are far better. If you need production decompilation, use
-  those.
+- **Decompiler quality.** dede now has a real native pipeline — lift to a
+  P-code-flavored IR (differentially validated against the interpreter),
+  expression trees with constant folding and condition re-fusion, stack/register
+  variable recovery, a TIE-style type lattice, Phoenix-style control-flow
+  structuring (if/else, while, do-while, switch), and switch/bitfield
+  reconstruction — emitting typed C. It is genuinely useful on the sample tiers,
+  but full SSA + cross-statement data-flow and struct/array recovery are still in
+  progress, so on large real-world binaries Hex-Rays, Ghidra's decompiler and
+  Binary Ninja's HLIL (many engineer-years each) remain far ahead. For production
+  decompilation of arbitrary binaries, use those. (dede can also link Ghidra's
+  own decompiler behind `DEDE_WITH_GHIDRA` as a differential oracle.)
 - **One architecture.** dede is x86-64 only, over a *documented subset* of the
   ISA. Ghidra/IDA cover dozens of processor families. Instructions outside the
   interpreter's subset decode (Capstone) but may not execute.
 - **Loader & format ecosystem.** ELF64, PE64 and flat blobs load today. The big
   tools parse a vast catalogue of formats, debug info, and runtime layouts, with
   deep symbol/type recovery.
-- **Type systems & signatures.** No FLIRT-style library identification, no type
-  libraries, no demangling/propagation of rich types. These are major IDA/Ghidra
-  strengths.
+- **Type systems & signatures.** dede infers scalar width/sign and pointer-ness
+  intra-function (a TIE-style lattice) and renders typed signatures/locals, but
+  there is no FLIRT-style library identification, no type libraries, and no
+  struct/array aggregate recovery or rich-type demangling/propagation yet. Those
+  remain major IDA/Ghidra strengths.
 - **Collaboration & plugin ecosystems.** No multi-user server, no large
   third-party plugin marketplace.
 - **GUI maturity.** The Vulkan/ImGui workspace is functional and covers the core
@@ -137,7 +150,9 @@ Tracked so the "more features" goal stays concrete and honest:
 - Broaden the interpreter's instruction subset (SSE/AVX paths, more string ops).
 - A second architecture behind the existing `Arch` seam (the Abstract-Factory
   hook is already in place).
-- Richer decompiler passes (the Visitor pipeline exists; add type inference).
+- Deepen the decompiler: full SSA + cross-statement data-flow (copy/const
+  propagation, CSE, DCE) and struct/array aggregate recovery on top of the
+  existing IR, type lattice, and structuring.
 - FLIRT-style signature matching and a minimal type library.
 - Import/export of WinDbg TTD and `rr` traces, so dede can *also* navigate
   externally-recorded sessions (interoperability both directions).
