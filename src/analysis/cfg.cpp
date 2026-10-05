@@ -92,8 +92,11 @@ Cfg build_cfg(const IDisassembler& disasm, const ByteReader& read, Addr entry, s
             const DecodedInsn& in = insns.at(pc);
             bb.insns.push_back(in);
             Addr next = in.addr + in.size;
+            // A call is a reference to another function, not intraprocedural flow:
+            // record it in `calls`, keep it out of the flow edges, and keep sweeping
+            // (the call returns and falls through to the next instruction).
             if (in.cf.is_call)
-                if (auto t = direct_target(in)) cfg.edges.push_back({L, *t, EdgeKind::Call});
+                if (auto t = direct_target(in)) cfg.calls.emplace_back(L, *t);
             if (in.cf.is_ret || in.mnemonic == "hlt") { bb.terminates = true; break; }
             if (in.cf.is_branch) {
                 auto t = direct_target(in);

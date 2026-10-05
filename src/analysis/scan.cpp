@@ -291,6 +291,10 @@ std::string to_json(const Cfg& cfg) {
         o << "{\"from\":" << e.from << ",\"to\":" << e.to << ",\"kind\":\"" << to_string(e.kind)
           << "\"}" << (i + 1 < cfg.edges.size() ? "," : "");
     }
+    o << "],\"calls\":[";
+    for (std::size_t i = 0; i < cfg.calls.size(); ++i)
+        o << "{\"from\":" << cfg.calls[i].first << ",\"callee\":" << cfg.calls[i].second << "}"
+          << (i + 1 < cfg.calls.size() ? "," : "");
     o << "]}";
     return o.str();
 }
@@ -333,11 +337,11 @@ CallGraph build_call_graph(Arch arch, const ByteReader& read, Addr entry, std::s
         seen.insert(f);
         Cfg cfg = build_cfg(*d, read, f);
         g.funcs.push_back({f, cfg.blocks.size()});
-        for (const auto& e : cfg.edges)
-            if (e.kind == EdgeKind::Call) {
-                g.calls.emplace_back(f, e.to);
-                if (!seen.count(e.to)) work.push_back(e.to);
-            }
+        for (const auto& [caller_block, callee] : cfg.calls) {
+            (void)caller_block;
+            g.calls.emplace_back(f, callee);
+            if (!seen.count(callee)) work.push_back(callee);
+        }
     }
     return g;
 }

@@ -38,7 +38,13 @@ struct CfgEdge {
 struct Cfg {
     Addr entry = 0;
     std::vector<BasicBlock> blocks;
-    std::vector<CfgEdge> edges;
+    std::vector<CfgEdge> edges;  // intraprocedural FLOW edges only (no call edges)
+
+    // Call sites within this function: {caller block start, callee entry}. A call
+    // is a reference to another function, NOT an intraprocedural flow edge — the
+    // callee has its own CFG — so professional function graphs (Ghidra/IDA/Binary
+    // Ninja) keep these out of the flow graph. The call graph is built from these.
+    std::vector<std::pair<Addr, Addr>> calls;
 
     const BasicBlock* block_at(Addr start) const;
 

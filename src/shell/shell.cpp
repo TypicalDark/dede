@@ -229,7 +229,8 @@ bool Shell::execute(const std::string& line) {
             return true;
         }
         out_ << "CFG of " << hex(entry) << annotate(entry) << ": " << g.blocks.size()
-             << " blocks, " << g.edges.size() << " edges\n";
+             << " blocks, " << g.edges.size() << " flow edges, " << g.calls.size()
+             << " call ref(s)\n";
         for (const auto& b : g.blocks) {
             out_ << "  loc_" << std::hex << b.start << std::dec << annotate(b.start) << "  ("
                  << b.insns.size() << " insns" << (b.terminates ? ", terminal" : "") << ")\n";
@@ -237,6 +238,11 @@ bool Shell::execute(const std::string& line) {
                 if (e.from == b.start)
                     out_ << "      --" << to_string(e.kind) << "--> loc_" << std::hex << e.to
                          << std::dec << "\n";
+            // Call sites are references to other functions, shown separately from flow.
+            for (const auto& [from, callee] : g.calls)
+                if (from == b.start)
+                    out_ << "      ~~call~~> sub_" << std::hex << callee << std::dec
+                         << annotate(callee) << "  (separate function)\n";
         }
         out_ << "(use 'cfg " << hex(entry) << " dot' for graphviz)\n";
         return true;

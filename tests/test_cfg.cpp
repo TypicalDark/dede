@@ -46,6 +46,32 @@ TEST("CFG of a loop has the expected blocks and edges") {
     CHECK(dot.find("digraph") != std::string::npos);
 }
 
+TEST("call is a reference, not an intraprocedural flow edge") {
+    // mov rax,0x15 ; call 0x1010 ; hlt   (helper at 0x1010: shl rax,1 ; ret)
+    std::vector<u8> code = {
+        0x48, 0xC7, 0xC0, 0x15, 0x00, 0x00, 0x00,  // 0x1000 mov rax,0x15
+        0xE8, 0x04, 0x00, 0x00, 0x00,              // 0x1007 call 0x1010
+        0xF4,                                      // 0x100c hlt
+        0x90, 0x90, 0x90,                          // padding
+        0x48, 0xD1, 0xE0,                          // 0x1010 shl rax,1
+        0xC3};                                     // 0x1013 ret
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+
+    Cfg g = s.build_cfg(0x1000);
+    // main is ONE block ending at the hlt; the call does NOT split it and does NOT
+    // add a flow edge (the callee is a separate function, as in Ghidra/IDA/BN).
+    CHECK_EQ(g.blocks.size(), 1u);
+    CHECK_EQ(g.edges.size(), 0u);
+    // The call is recorded as a reference instead.
+    CHECK_EQ(g.calls.size(), 1u);
+    CHECK_EQ(g.calls[0].second, 0x1010u);
+    // No flow edge anywhere points at the callee entry.
+    for (const auto& e : g.edges) CHECK(e.to != 0x1010u);
+}
+
 TEST("pointer-encryption detector flags PTR_MANGLE-style mangling") {
     // xor rax, fs:[0x30] ; ror rax, 0x11 ; hlt  (glibc pointer guard)
     std::vector<u8> code = {0x64,0x48,0x33,0x04,0x25,0x30,0,0,0, 0x48,0xC1,0xC8,0x11, 0xF4};
