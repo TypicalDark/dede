@@ -113,4 +113,19 @@ TEST("decompiler reconstructs a switch from a recovered jump table") {
     CHECK(has(c, "0xa0") && has(c, "0xa3"));  // case bodies present
 }
 
+TEST("decompiler reconstructs a bitfield read as a BITFIELD intrinsic") {
+    // mov rax,rdi; shr rax,3; and rax,7; ret  -> a 3-bit field at bit 3 of rdi.
+    std::string c = decompile_bytes({0x48, 0x89, 0xF8, 0x48, 0xC1, 0xE8, 0x03,
+                                     0x48, 0x83, 0xE0, 0x07, 0xC3});
+    CHECK(has(c, "BITFIELD(rdi, 3, 3)"));  // (x >> lo) & mask collapsed, position + width recovered
+    CHECK(!has(c, ">> 3"));                // the shift/mask feeder statements were removed
+}
+
+TEST("decompiler leaves a single-bit test as a bit-test, not a bitfield") {
+    // mov rax,rdi; shr rax,5; and rax,1; ret  -> a 1-bit extract stays `& 1`.
+    std::string c = decompile_bytes({0x48, 0x89, 0xF8, 0x48, 0xC1, 0xE8, 0x05,
+                                     0x48, 0x83, 0xE0, 0x01, 0xC3});
+    CHECK(!has(c, "BITFIELD"));  // width 1 is a flag/bit-test, deliberately not a bitfield
+}
+
 int main() { return dede::test::run_all(); }

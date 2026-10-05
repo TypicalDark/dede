@@ -114,7 +114,58 @@ std::string hexc(long long v) {
 }
 
 std::string print(const ExprP& e, int prec = 0);
+
+// If `m` is a contiguous low-bit mask (2^w - 1), return its width w, else 0.
+int low_mask_width(long long m) {
+    if (m <= 0) return 0;
+    unsigned long long u = static_cast<unsigned long long>(m);
+    if ((u & (u + 1)) != 0) return 0;  // not 2^w - 1
+    int w = 0;
+    while (u) { ++w; u >>= 1; }
+    return w;
+}
+
+// Bitfield-read reconstruction: `(x >> lo) & ((1<<w)-1)` with a *multi-bit*
+// field at a nonzero position is a struct bitfield access. Render it as the
+// pseudo-C intrinsic BITFIELD(x, lo, width) — the same helper-form Ghidra/
+// Hex-Rays emit. Single-bit extracts (w == 1) are left as `(x >> k) & 1`
+// bit-tests, and masks at position 0 are left as truncation masks, since both
+// are ambiguous with a true bitfield.
+std::optional<std::string> as_bitfield(const ExprP& e) {
+    if (!e || e->k != Expr::K::Binary || e->op != Op::And || !e->a || !e->b) return std::nullopt;
+    if (e->b->k != Expr::K::Const) return std::nullopt;
+    int w = low_mask_width(e->b->cval);
+    if (w < 2) return std::nullopt;
+    const ExprP& sh = e->a;
+    if (sh->k != Expr::K::Binary || (sh->op != Op::Shr && sh->op != Op::Sar)) return std::nullopt;
+    if (!sh->b || sh->b->k != Expr::K::Const || sh->b->cval <= 0) return std::nullopt;
+    return "BITFIELD(" + print(sh->a) + ", " + std::to_string(sh->b->cval) + ", " + std::to_string(w) + ")";
+}
+
+// Collect the register leaves of an expression (for soundness checks).
+void reg_leaves(const ExprP& e, std::set<Reg>& out) {
+    if (!e) return;
+    switch (e->k) {
+        case Expr::K::Reg: out.insert(e->reg); break;
+        case Expr::K::Binary: reg_leaves(e->a, out); reg_leaves(e->b, out); break;
+        case Expr::K::Unary: case Expr::K::Load: reg_leaves(e->a, out); break;
+        default: break;
+    }
+}
+
+// True if the expression touches memory (a Load or a recovered stack Var). A
+// bitfield read is only collapsed across statements when it is purely register-
+// based, so a later store cannot invalidate the inlined value.
+bool touches_mem(const ExprP& e) {
+    if (!e) return false;
+    if (e->k == Expr::K::Load || e->k == Expr::K::Var) return true;
+    if (e->k == Expr::K::Binary) return touches_mem(e->a) || touches_mem(e->b);
+    if (e->k == Expr::K::Unary) return touches_mem(e->a);
+    return false;
+}
+
 std::string print_binary(const ExprP& e, int prec) {
+    if (auto bf = as_bitfield(e)) return *bf;  // BITFIELD(...) is a primary; no parens
     int myprec = (e->op == Op::Mul) ? 6 : (e->op == Op::Add || e->op == Op::Sub) ? 5
                : (e->op == Op::Shl || e->op == Op::Shr || e->op == Op::Sar) ? 4
                : (e->op == Op::And) ? 3 : (e->op == Op::Xor) ? 2 : (e->op == Op::Or) ? 1 : 0;
@@ -164,6 +215,15 @@ struct Folder {
     std::map<Reg, bool> written;
     std::map<std::string, types::LType> stack_vars;  // recovered named locals
 
+    // Parallel symbolic-value track used ONLY to recognise multi-statement
+    // idioms (bitfield reads) and collapse them. Unlike `regs`/`temp`, these
+    // are not reset to the register name after each def, so they carry the full
+    // value expression across statements within a straight-line region.
+    std::map<int, ExprP> symtmp;
+    std::map<Reg, ExprP> symreg;
+    std::map<Reg, std::vector<std::size_t>> chain;  // removable feeder stmt indices per reg
+    std::set<std::size_t> dead;                     // out.stmts indices to drop
+
     ExprP of(const ir::Vn& v) {
         switch (v.kind) {
             case ir::VnKind::Const: return ec(v.cval, v.size);
@@ -173,6 +233,28 @@ struct Folder {
             default: return ec(0);
         }
     }
+
+    ExprP symof(const ir::Vn& v) {
+        switch (v.kind) {
+            case ir::VnKind::Const: return ec(v.cval, v.size);
+            case ir::VnKind::Temp: { auto it = symtmp.find(v.temp); return it == symtmp.end() ? ec(0) : it->second; }
+            case ir::VnKind::Reg: { auto it = symreg.find(v.reg); return it == symreg.end() ? er(v.reg, v.size) : it->second; }
+            case ir::VnKind::Flag: return ef(v.flag);
+            default: return ec(0);
+        }
+    }
+
+    // A register leaf is safe to name in a collapsed expression only if it has
+    // not been reassigned earlier in the block (so it still holds its entry
+    // value at this point); memory operands are never collapsed.
+    bool collapsible(const ExprP& sym) {
+        if (touches_mem(sym)) return false;
+        std::set<Reg> leaves;
+        reg_leaves(sym, leaves);
+        for (Reg r : leaves) { auto w = written.find(r); if (w != written.end() && w->second) return false; }
+        return true;
+    }
+    void barrier() { for (auto& c : chain) c.second.clear(); }  // stores/branches end a region
 
     // Track the last flag source so a following jcc re-fuses into a comparison.
     // Cmp/Test = a two-operand compare with no destination; Reg = an arithmetic
@@ -227,28 +309,52 @@ struct Folder {
         for (const auto& in : b.code) {
             switch (in.op) {
                 case Op::Copy:
-                    if (in.out.kind == ir::VnKind::Temp) temp[in.out.temp] = of(in.a);
+                    if (in.out.kind == ir::VnKind::Temp) { temp[in.out.temp] = of(in.a); symtmp[in.out.temp] = symof(in.a); }
                     else if (in.out.kind == ir::VnKind::Reg) {
                         ExprP rhs = of(in.a);
-                        // Emit the assignment in order, then let later uses refer to
-                        // the register by name (so output stays sequential + correct).
-                        out.stmts.push_back(std::string(reg_name(in.out.reg)) + " = " + print(rhs) + ";");
-                        regs[in.out.reg] = er(in.out.reg, in.out.size);
-                        written[in.out.reg] = true;
+                        ExprP sym = symof(in.a);
+                        Reg dst = in.out.reg;
+                        std::string name = std::string(reg_name(dst));
+                        std::size_t idx = out.stmts.size();
+                        // Multi-statement bitfield read `(x >> lo) & mask` collapses to
+                        // a BITFIELD(x, lo, width) intrinsic; its dead feeder statements
+                        // (the shift + mask chain) are removed.
+                        if (auto bf = as_bitfield(sym); bf && collapsible(sym)) {
+                            for (std::size_t fi : chain[dst]) dead.insert(fi);
+                            chain[dst].clear();
+                            out.stmts.push_back(name + " = " + *bf + ";");
+                            symreg[dst] = er(dst, in.out.size);
+                        } else {
+                            // Emit the assignment in order, then let later uses refer to
+                            // the register by name (so output stays sequential + correct).
+                            std::set<Reg> leaves;
+                            reg_leaves(rhs, leaves);
+                            bool reads_self = leaves.count(dst) > 0;
+                            for (Reg s : leaves) if (s != dst) chain[s].clear();  // value escaped into dst
+                            out.stmts.push_back(name + " = " + print(rhs) + ";");
+                            if (reads_self) chain[dst].push_back(idx);
+                            else chain[dst] = {idx};
+                            symreg[dst] = sym;
+                        }
+                        regs[dst] = er(dst, in.out.size);
+                        written[dst] = true;
                         if (in.a.kind == ir::VnKind::Temp && in.a.temp == pending_flag_temp)
-                            fs = {FlagSrc::RegResult, nullptr, nullptr, in.out.reg};
+                            fs = {FlagSrc::RegResult, nullptr, nullptr, dst};
                     } else if (in.out.kind == ir::VnKind::Flag) flags[in.out.flag] = of(in.a);
                     break;
                 case Op::Load:
                     if (in.out.kind == ir::VnKind::Temp) {
                         ExprP a = of(in.a);
+                        ExprP le;
                         if (auto nm = slot_name(a)) {
                             Expr e; e.k = Expr::K::Var; e.text = *nm; e.size = in.out.size;
-                            temp[in.out.temp] = mk(e);
+                            le = mk(e);
                             stack_vars[*nm] = {types::TClass::Integer, in.out.size, types::Sign::Unknown};
                         } else {
-                            Expr e; e.k = Expr::K::Load; e.a = a; e.size = in.out.size; temp[in.out.temp] = mk(e);
+                            Expr e; e.k = Expr::K::Load; e.a = a; e.size = in.out.size; le = mk(e);
                         }
+                        temp[in.out.temp] = le;
+                        symtmp[in.out.temp] = le;
                     }
                     break;
                 case Op::Store: {
@@ -259,6 +365,7 @@ struct Folder {
                     } else {
                         out.stmts.push_back("*(uint" + std::to_string(in.b.size * 8) + "_t *)(" + print(a) + ") = " + print(of(in.b)) + ";");
                     }
+                    barrier();  // a store ends the straight-line region for collapsing
                     break;
                 }
                 case Op::Add: case Op::Sub: case Op::Mul: case Op::And: case Op::Or:
@@ -270,15 +377,24 @@ struct Folder {
                         if (in.op == Op::Sub) { fs = {FlagSrc::Cmp, of(in.a), of(in.b), Reg::Rax}; pending_flag_temp = in.out.temp; }
                         else if (in.op == Op::And) { fs = {FlagSrc::Test, of(in.a), of(in.b), Reg::Rax}; pending_flag_temp = in.out.temp; }
                         temp[in.out.temp] = binary(in.op, of(in.a), of(in.b));
+                        symtmp[in.out.temp] = binary(in.op, symof(in.a), symof(in.b));
                     }
                     break;
-                case Op::Not: if (in.out.kind == ir::VnKind::Temp) { Expr e; e.k = Expr::K::Unary; e.op = Op::Not; e.a = of(in.a); e.size = in.out.size; temp[in.out.temp] = mk(e); } break;
-                case Op::Neg: if (in.out.kind == ir::VnKind::Temp) { Expr e; e.k = Expr::K::Unary; e.op = Op::Neg; e.a = of(in.a); e.size = in.out.size; temp[in.out.temp] = mk(e); } break;
-                case Op::Zext: case Op::Sext: if (in.out.kind == ir::VnKind::Temp) temp[in.out.temp] = of(in.a); break;
-                case Op::Call: { ExprP t = of(in.a); char nm[24]; std::snprintf(nm, sizeof nm, "%llx", (unsigned long long)t->cval); out.stmts.push_back(std::string("sub_") + nm + "();"); break; }
-                case Op::CBranch: out.condition = condition(in.note); break;
+                case Op::Not: if (in.out.kind == ir::VnKind::Temp) { Expr e; e.k = Expr::K::Unary; e.op = Op::Not; e.a = of(in.a); e.size = in.out.size; temp[in.out.temp] = mk(e); Expr se = e; se.a = symof(in.a); symtmp[in.out.temp] = mk(se); } break;
+                case Op::Neg: if (in.out.kind == ir::VnKind::Temp) { Expr e; e.k = Expr::K::Unary; e.op = Op::Neg; e.a = of(in.a); e.size = in.out.size; temp[in.out.temp] = mk(e); Expr se = e; se.a = symof(in.a); symtmp[in.out.temp] = mk(se); } break;
+                case Op::Zext: case Op::Sext: if (in.out.kind == ir::VnKind::Temp) { temp[in.out.temp] = of(in.a); symtmp[in.out.temp] = symof(in.a); } break;
+                case Op::Call: { ExprP t = of(in.a); char nm[24]; std::snprintf(nm, sizeof nm, "%llx", (unsigned long long)t->cval); out.stmts.push_back(std::string("sub_") + nm + "();"); symreg.clear(); barrier(); break; }
+                case Op::CBranch: out.condition = condition(in.note); barrier(); break;
                 default: break;  // flag-producer ops consumed via re-fusion; branches handled by CFG
             }
+        }
+        // Drop the feeder statements made dead by a bitfield collapse.
+        if (!dead.empty()) {
+            std::vector<std::string> keep;
+            keep.reserve(out.stmts.size());
+            for (std::size_t i = 0; i < out.stmts.size(); ++i)
+                if (!dead.count(i)) keep.push_back(out.stmts[i]);
+            out.stmts.swap(keep);
         }
         return out;
     }

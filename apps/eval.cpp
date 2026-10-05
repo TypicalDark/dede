@@ -151,6 +151,20 @@ void run_dynamic_checks() {
         rec(20,'B',"Switch/case reconstruction", cases == 4 ? V::PASS : V::FAIL,
             "jump-table recovery materializes case edges (bounded by the preceding cmp); decompiler emits a switch");
     }
+    // 29: bitfield reconstruction.
+    {
+        // mov rax,rdi; shr rax,3; and rax,7; ret -> (rdi >> 3) & 7, a 3-bit field at bit 3.
+        AnalysisSession s(Arch::X86_64);
+        s.map(0x1000, 0x1000, perm::RWX);
+        s.load(0x1000, {0x48,0x89,0xF8, 0x48,0xC1,0xE8,0x03, 0x48,0x83,0xE0,0x07, 0xC3}, perm::RWX);
+        s.set_entry(0x1000);
+        auto r = s.decompile(0x1000, 12);
+        std::string c = r ? r.value() : "";
+        bool bf = c.find("BITFIELD(rdi, 3, 3)") != std::string::npos;
+        rec(29,'B',"Bitfield reconstruction", bf ? V::PASS : V::FAIL,
+            "the `(x >> lo) & mask` idiom collapses (across statements) to a BITFIELD(x, lo, width) "
+            "intrinsic; recognized soundly (source register unclobbered, no memory operand)");
+    }
     // 17/23/25/84: constraint-based type inference.
     {
         auto dis = make_disassembler(Arch::X86_64);
@@ -432,7 +446,6 @@ int main(int argc, char** argv) {
     rec(26,'B',"Virtual method resolution", V::NA, "no C++ RTTI/vtable recovery (roadmap: UML view)");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
-    rec(29,'B',"Bitfield reconstruction", V::FAIL, "needs the full decompiler backend");
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");
     rec(37,'C',"Call tracing / call stack", V::PARTIAL, "call events traced; heuristic unwind not yet implemented");
     rec(38,'C',"Return-address / stack integrity", V::PARTIAL, "stack visible; no automatic corruption detector yet");

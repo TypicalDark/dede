@@ -270,10 +270,11 @@ Each milestone is independently testable with dede's dependency-free harness, an
 - Files: `include/dede/types/{lattice,dtype}.hpp`, `src/types/{constraints,solver,proto_db}.cpp`.
 - Test: recovery vs known-good types from debug-info samples; measure scalar width/sign/pointerness. **Flips #23 (function-signature inference)**, **#25 (implicit cast)** (casts inserted where lattice disagrees), **#84 (type database)**, and the scalar part of **#17**.
 
-**M7 — Struct/array + bitfield recovery (TIE phase 2, ASI-lite).**
+**M7 — Struct/array + bitfield recovery (TIE phase 2, ASI-lite).** *(bitfield slice ✅ delivered.)*
 - Delivers: per-pointer `{offset,width}` clustering → `Struct` fields; strided → `Array`; bitfield detection from masked sub-word loads/stores; recursive-type memoization.
-- Files: `src/types/aggregates.cpp`.
-- Test: struct/array/bitfield samples. **Completes #17 (struct recovery)** and **flips #29 (bitfield)**.
+- Files: `src/types/aggregates.cpp` (struct/array, pending); bitfield recognition lives in `src/decompiler/native.cpp`.
+- **Delivered (bitfield):** the `(x >> lo) & ((1<<w)-1)` read idiom (multi-bit, nonzero position) is recognized across statements via a parallel symbolic-value track and collapsed into a `BITFIELD(x, lo, width)` intrinsic, with the dead shift/mask feeder statements removed. Collapse is sound — only when the source register is unclobbered to that point and no memory operand is involved; single-bit extracts stay as `& 1` bit-tests. **Flips #29.** Struct/array aggregate recovery (#17 completion) remains.
+- Test: `tests/test_decompiler.cpp` (BITFIELD intrinsic + the single-bit negative case); struct/array samples pending.
 
 **M8 (optional, later) — DREAM condition-refinement + BinSub polymorphism.**
 - Delivers: reaching conditions + boolean simplifier to minimize gotos (SAILR-tempered); optional algebraic-subtyping upgrade for per-function polymorphic schemes.
