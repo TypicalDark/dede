@@ -197,4 +197,47 @@ TEST("lazy-init detector flags a guarded one-time init, not a bare compare") {
     CHECK(!false_lazy);
 }
 
+TEST("anti-disassembly detector flags overlap / opaque pair / push-ret, not clean code") {
+    // overlap (jmp into its own 2nd byte) + push imm32; ret + je/jne to the same target
+    std::vector<u8> code = {0xEB,0xFF, 0x68,0x44,0x33,0x22,0x11, 0xC3,
+                            0x0F,0x84,0x06,0,0,0, 0x0F,0x85,0,0,0,0, 0xC3};
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+    auto reader = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    bool overlap = false, opaque = false, pushret = false;
+    for (const auto& f : detect(Arch::X86_64, reader, 0x1000, 8)) {
+        if (f.category != "anti-disassembly") continue;
+        if (f.rule.find("overlapping") != std::string::npos) overlap = true;
+        if (f.rule.find("complementary") != std::string::npos) opaque = true;
+        if (f.rule.find("push imm") != std::string::npos) pushret = true;
+    }
+    CHECK(overlap);
+    CHECK(opaque);
+    CHECK(pushret);
+
+    // Negatives: a normal backward loop branch (target on a boundary) and a
+    // same-target but NON-complementary conditional pair must NOT be flagged.
+    std::vector<u8> clean = {0x48,0xC7,0xC1,0x03,0,0,0, 0x48,0xFF,0xC9, 0x75,0xFB, 0xF4,  // loop: dec rcx; jnz loop; hlt
+                             0x0F,0x8C,0x06,0,0,0, 0x0F,0x84,0,0,0,0, 0xC3};               // jl X; je X; ret (jle, not complementary)
+    AnalysisSession s2;
+    s2.map(0x3000, 0x1000, perm::RWX);
+    s2.load(0x3000, clean, perm::RWX);
+    s2.set_entry(0x3000);
+    auto reader2 = [&s2](Addr a) -> std::optional<u8> {
+        auto b = s2.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    bool false_ad = false;
+    for (const auto& f : detect(Arch::X86_64, reader2, 0x3000, 8))
+        if (f.category == "anti-disassembly") false_ad = true;
+    CHECK(!false_ad);
+}
+
 int main() { return dede::test::run_all(); }

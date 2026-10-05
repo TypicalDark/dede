@@ -248,6 +248,37 @@ void run_dynamic_checks() {
             "structural scan flags the guarded one-time-init idiom (test global -> conditional skip -> "
             "store same global), i.e. double-checked lazy init / deferred validation");
     }
+    // 16: decompiler readability (structured, typed C — not a mnemonic transliteration).
+    {
+        auto s = fresh(kLoop);
+        auto r = s.decompile(0x1000, 32);
+        std::string c = r ? r.value() : "";
+        bool typed_sig = c.find("int64_t sub_1000(") != std::string::npos;
+        bool typed_local = c.find("int64_t rcx;") != std::string::npos;
+        bool structured = c.find("do {") != std::string::npos && c.find("} while (") != std::string::npos;
+        bool expr = c.find("rcx = rcx - 1;") != std::string::npos;      // a real expression, not asm
+        bool no_mnemonics = c.find("mov ") == std::string::npos && c.find("dec ") == std::string::npos &&
+                            c.find("jnz") == std::string::npos && c.find("jne") == std::string::npos;
+        bool readable = typed_sig && typed_local && structured && expr && no_mnemonics;
+        rec(16,'B',"Decompiler readability", readable ? V::PASS : V::PARTIAL,
+            "native IR decompiler (default backend) emits structured, typed C — typed signature + "
+            "declared locals, do/while/if-else/switch control flow, folded expressions — not a "
+            "per-instruction mnemonic transliteration");
+    }
+    // 131: anti-disassembly pattern detection.
+    {
+        // overlap (jmp into the middle of itself) + push imm32; ret + je/jne to the
+        // same target (a complementary/opaque conditional pair).
+        auto s = fresh({0xEB,0xFF, 0x68,0x44,0x33,0x22,0x11, 0xC3,
+                        0x0F,0x84,0x06,0,0,0, 0x0F,0x85,0,0,0,0, 0xC3});
+        auto f = detect(Arch::X86_64, reader_of(s), 0x1000, 8);
+        bool ad = false;
+        for (const auto& x : f) if (x.category == "anti-disassembly") ad = true;
+        rec(131,'G',"Anti-disassembly pattern detection", ad ? V::PASS : V::PARTIAL,
+            "detector flags overlapping-instruction branch targets (jump into the middle of an "
+            "instruction), complementary (opaque) conditional pairs, and push-imm;ret obfuscation; "
+            "the engine also decodes the true executed stream at runtime");
+    }
     // 6 & 70: call graph
     {
         auto s = fresh(kLoop);
@@ -473,7 +504,6 @@ int main(int argc, char** argv) {
     rec(7,'A',"Function prologue/boundary ID", V::PARTIAL, "CFG/call-graph recover function blocks; no prologue-signature pass");
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
-    rec(16,'B',"Decompiler readability", V::PARTIAL, "linear-pseudocode fallback; Ghidra-native adapter behind a build flag");
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
     rec(19,'B',"Exception-handler visualization", V::NA, "no SEH model (see TRANSPARENCY roadmap: fault delivery)");
     rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
@@ -521,7 +551,7 @@ int main(int argc, char** argv) {
     const std::array<int, 49> legacy = {101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,
         121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149};
     for (int id : legacy) {
-        if (id == 131) rec(id,'G',"Anti-disassembly pattern detection", V::PARTIAL, "overlapping-instruction fidelity (decode cache) + opcode anomaly");
+        if (id == 131) continue;  // scored dynamically in run_dynamic_checks() (anti-disassembly detector)
         else if (id == 132) rec(id,'G',"Anti-debug pattern library", V::PASS, "scan anti-debug catalogs int3/int2d/flags/MSR patterns");
         else if (id == 133) rec(id,'G',"Anti-analysis code detection", V::PASS, "scan anti-vm detects cpuid/sidt/sgdt/port-IO");
         else if (id == 134) rec(id,'G',"Inline encryption detection", V::PASS, "crypto detector flags inline xor/rotate/AES");

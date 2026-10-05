@@ -289,6 +289,62 @@ void scan_lazy_init(const std::vector<DecodedInsn>& insns, std::vector<Finding>&
     }
 }
 
+// The direct (immediate) branch/call target of an instruction, if it has one.
+std::optional<Addr> branch_target(const DecodedInsn& in) {
+    if ((in.cf.is_branch || in.cf.is_call) && !in.operands.empty() && in.operands[0].kind == OpKind::Imm)
+        return static_cast<Addr>(in.operands[0].imm);
+    return std::nullopt;
+}
+
+// The opposite jcc mnemonic (both Capstone spellings), or empty if not a jcc.
+std::string jcc_complement(const std::string& m) {
+    static const std::pair<const char*, const char*> t[] = {
+        {"je", "jne"}, {"jz", "jnz"}, {"js", "jns"}, {"jo", "jno"}, {"jp", "jnp"},
+        {"jpe", "jpo"}, {"jb", "jae"}, {"jc", "jnc"}, {"jnae", "jnb"}, {"jbe", "ja"},
+        {"jna", "jnbe"}, {"jl", "jge"}, {"jnge", "jnl"}, {"jle", "jg"}, {"jng", "jnle"},
+    };
+    for (const auto& [a, b] : t) { if (m == a) return b; if (m == b) return a; }
+    return {};
+}
+
+// Anti-disassembly idioms: tricks that desync a linear sweep from the real
+// instruction stream. Flagged over the already-decoded window; generic, not
+// sample-specific. Families: (1) a direct branch/call whose target lands in the
+// middle of a decoded instruction (overlapping / "impossible" disassembly);
+// (2) two consecutive conditional branches to the SAME target with complementary
+// conditions (an opaque predicate / disguised unconditional jump whose
+// fall-through is junk); (3) `push imm; ret` (a stack-based obfuscated transfer).
+void scan_anti_disasm(const std::vector<DecodedInsn>& insns, std::vector<Finding>& out) {
+    if (insns.empty()) return;
+    std::set<Addr> boundaries;
+    Addr lo = insns.front().addr, hi = insns.front().addr;
+    for (const auto& in : insns) {
+        boundaries.insert(in.addr);
+        lo = std::min(lo, in.addr);
+        hi = std::max<Addr>(hi, in.addr + in.size);
+    }
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+        const DecodedInsn& in = insns[i];
+        // (1) branch into the middle of a decoded instruction.
+        if (auto t = branch_target(in))
+            if (*t > lo && *t < hi && !boundaries.count(*t))
+                out.push_back({"anti-disassembly", "branch into middle of instruction (overlapping code)",
+                               in.addr, in.text(), "warning"});
+        // (2) complementary conditional pair to the same target = disguised jmp.
+        if (i + 1 < insns.size() && in.cf.is_cond_branch && insns[i + 1].cf.is_cond_branch) {
+            auto t0 = branch_target(in), t1 = branch_target(insns[i + 1]);
+            if (t0 && t1 && *t0 == *t1 && jcc_complement(in.mnemonic) == insns[i + 1].mnemonic)
+                out.push_back({"anti-disassembly", "complementary conditional pair (opaque predicate / disguised jmp)",
+                               in.addr, in.text(), "warning"});
+        }
+        // (3) push imm ; ret  -> obfuscated control transfer.
+        if (i + 1 < insns.size() && in.mnemonic == "push" && !in.operands.empty() &&
+            in.operands[0].kind == OpKind::Imm && insns[i + 1].cf.is_ret)
+            out.push_back({"anti-disassembly", "push imm; ret (obfuscated control transfer)",
+                           in.addr, in.text(), "notice"});
+    }
+}
+
 }  // namespace
 
 std::vector<Finding> detect(Arch arch, const ByteReader& read, Addr addr, std::size_t count) {
@@ -298,7 +354,8 @@ std::vector<Finding> detect(Arch arch, const ByteReader& read, Addr addr, std::s
     std::vector<Finding> out;
     for (const auto& in : insns)
         for (const auto& det : detectors()) det->inspect(in, out);
-    scan_lazy_init(insns, out);  // multi-instruction structural idioms
+    scan_lazy_init(insns, out);    // multi-instruction structural idioms
+    scan_anti_disasm(insns, out);  // overlapping code / opaque predicates / push-ret
     return out;
 }
 

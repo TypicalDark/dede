@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// The decompiler interface. The real backend is Ghidra's native decompiler,
-// linked behind an Adapter when DEDE_WITH_GHIDRA is set (feeding it bytes from
-// the live trace via a LoadImage subclass). Without it, a linear-pseudocode
-// fallback gives a readable, structured view so `decompile` always does
-// something honest. Passes over the decoded stream are Visitors.
+// The decompiler interface. The DEFAULT backend is dede's own native decompiler
+// (src/decompiler/native.cpp): it lifts to IR, builds constant-folded expression
+// trees, re-fuses cmp/jcc, recovers types/structs/arrays, and emits structured,
+// goto-minimized C. Ghidra's native decompiler can be linked behind an Adapter as
+// an optional differential oracle when DEDE_WITH_GHIDRA is set (feeding it bytes
+// from the live trace via a LoadImage subclass). A linear per-instruction
+// pseudocode view remains as a last-resort fallback. Passes over the decoded
+// stream are Visitors.
 #pragma once
 
 #include <functional>
