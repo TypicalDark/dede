@@ -313,6 +313,22 @@ private:
             return ok();
         }
         if (m == "imul") return imul(e);
+        if (m == "div") return divide(e, false);
+        if (m == "idiv") return divide(e, true);
+        if (m == "cqo" || m == "cdq" || m == "cwd") {  // sign-extend rAX into rDX (set up idiv)
+            unsigned bytes = m == "cqo" ? 8 : m == "cdq" ? 4 : 2;
+            u64 a = e.cpu.get(Reg::Rax) & mask_bytes(bytes);
+            e.cpu.write(Reg::Rdx, static_cast<Width>(bytes),
+                        ((i64)sign_extend(a, bytes) < 0) ? mask_bytes(bytes) : 0);
+            return ok();
+        }
+        if (m == "cdqe" || m == "cwde" || m == "cbw") {  // sign-extend within rAX
+            unsigned from = m == "cdqe" ? 4 : m == "cwde" ? 2 : 1;
+            unsigned to = m == "cdqe" ? 8 : m == "cwde" ? 4 : 2;
+            u64 v = sign_extend(e.cpu.get(Reg::Rax) & mask_bytes(from), from) & mask_bytes(to);
+            e.cpu.write(Reg::Rax, static_cast<Width>(to), v);
+            return ok();
+        }
         if (m == "shl" || m == "sal" || m == "shr" || m == "sar") return shift(e, m);
 
         // Probes / specials --------------------------------------------------
@@ -509,6 +525,64 @@ private:
         e.cpu.set_flag(flags::CF, overflow);
         e.cpu.set_flag(flags::OF, overflow);
         if (auto r = write_op(e, ops[0], res); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
+        return ok();
+    }
+
+    // DIV / IDIV: unsigned/signed division of the (R)DX:(R)AX dividend by the
+    // operand. A zero divisor or a quotient that does not fit the result width
+    // raises #DE — delivered through the generic Fault channel, so a Fault run
+    // point breaks on it and it is recorded as a time-travel-visible event. This
+    // is the canonical "break on exception" case (divide-by-zero).
+    StepOutcome divide(Exec& e, bool sgn) {
+        auto& ops = e.in.operands;
+        if (ops.empty()) return unsupported(e.sink, e.in.addr, e.tick, "div with no operands");
+        unsigned bytes = opsize(ops[0]);
+        auto s = read_op(e, ops[0]);
+        if (!s) return fault(e.sink, e.in.addr, e.tick, s.message());
+        u64 dv = s.value() & mask_bytes(bytes);
+        if (dv == 0) return fault(e.sink, e.in.addr, e.tick, "#DE divide error (divide by zero)");
+        const char* ovf = "#DE divide error (quotient overflow)";
+        auto low = [&](Reg r) { return e.cpu.get(r) & mask_bytes(bytes); };
+
+        if (bytes == 1) {  // AX / r8 -> AL=quotient, AH=remainder
+            u64 ax = e.cpu.get(Reg::Rax) & 0xFFFF;
+            u64 q, r;
+            if (sgn) {
+                i64 num = (i64)sign_extend(ax, 2), den = (i64)sign_extend(dv, 1);
+                i64 Q = num / den, R = num % den;
+                if (Q < -128 || Q > 127) return fault(e.sink, e.in.addr, e.tick, ovf);
+                q = (u64)Q & 0xFF; r = (u64)R & 0xFF;
+            } else {
+                u64 Q = ax / dv, R = ax % dv;  // ax is the 16-bit dividend, dv the 8-bit divisor
+                if (Q > 0xFF) return fault(e.sink, e.in.addr, e.tick, ovf);
+                q = Q & 0xFF; r = R & 0xFF;
+            }
+            u64 rax = (e.cpu.get(Reg::Rax) & ~0xFFFFull) | q | (r << 8);
+            e.cpu.write(Reg::Rax, Width::B8, rax);
+            return ok();
+        }
+
+        unsigned bits = bytes * 8;
+        u64 q, r;
+        if (sgn) {
+            __int128 num = (__int128)(((unsigned __int128)low(Reg::Rdx) << bits) | low(Reg::Rax));
+            unsigned total = bits * 2;  // sign-extend the 2N-bit dividend to 128
+            if (total < 128 && ((num >> (total - 1)) & 1)) num |= (~(__int128)0) << total;
+            __int128 den = (__int128)(i64)sign_extend(dv, bytes);
+            __int128 Q = num / den, R = num % den;
+            __int128 qmax = ((__int128)1 << (bits - 1)) - 1, qmin = -((__int128)1 << (bits - 1));
+            if (Q < qmin || Q > qmax) return fault(e.sink, e.in.addr, e.tick, ovf);
+            q = (u64)Q & mask_bytes(bytes);
+            r = (u64)R & mask_bytes(bytes);
+        } else {
+            unsigned __int128 num = ((unsigned __int128)low(Reg::Rdx) << bits) | low(Reg::Rax);
+            unsigned __int128 den = dv, Q = num / den, R = num % den;
+            if (Q > (unsigned __int128)mask_bytes(bytes)) return fault(e.sink, e.in.addr, e.tick, ovf);
+            q = (u64)Q & mask_bytes(bytes);
+            r = (u64)R & mask_bytes(bytes);
+        }
+        e.cpu.write(Reg::Rax, static_cast<Width>(bytes), q);
+        e.cpu.write(Reg::Rdx, static_cast<Width>(bytes), r);
         return ok();
     }
 

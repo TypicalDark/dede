@@ -85,4 +85,32 @@ TEST("cpuid default masks the hypervisor-present bit") {
     CHECK_EQ((core.cpu().get(Reg::Rcx) >> 31) & 1u, 0u);
 }
 
+TEST("div computes quotient and remainder (unsigned)") {
+    // xor edx,edx; mov eax,17; mov ecx,5; div ecx; hlt  -> eax=3, edx=2
+    ExecutionCore core;
+    load(core, {0x31,0xD2, 0xB8,0x11,0,0,0, 0xB9,0x05,0,0,0, 0xF7,0xF1, 0xF4});
+    auto o = run_to_halt(core);
+    CHECK(o.status == StepOutcome::Status::Halted);
+    CHECK_EQ(core.cpu().get(Reg::Rax) & 0xffffffffu, 3u);
+    CHECK_EQ(core.cpu().get(Reg::Rdx) & 0xffffffffu, 2u);
+}
+
+TEST("idiv with cdq handles a negative dividend") {
+    // mov eax,-17; cdq; mov ecx,5; idiv ecx; hlt  -> eax=-3 (quot), edx=-2 (rem)
+    ExecutionCore core;
+    load(core, {0xB8,0xEF,0xFF,0xFF,0xFF, 0x99, 0xB9,0x05,0,0,0, 0xF7,0xF9, 0xF4});
+    auto o = run_to_halt(core);
+    CHECK(o.status == StepOutcome::Status::Halted);
+    CHECK_EQ((int)(core.cpu().get(Reg::Rax) & 0xffffffffu), -3);
+    CHECK_EQ((int)(core.cpu().get(Reg::Rdx) & 0xffffffffu), -2);
+}
+
+TEST("divide by zero raises a Fault (#DE)") {
+    // xor edx,edx; mov eax,10; mov ecx,0; div ecx; hlt  -> #DE at the div
+    ExecutionCore core;
+    load(core, {0x31,0xD2, 0xB8,0x0A,0,0,0, 0xB9,0,0,0,0, 0xF7,0xF1, 0xF4});
+    auto o = run_to_halt(core);
+    CHECK(o.status == StepOutcome::Status::Fault);  // caught, not executed as garbage
+}
+
 int main() { return dede::test::run_all(); }

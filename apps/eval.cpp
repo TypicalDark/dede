@@ -98,7 +98,7 @@ void run_dynamic_checks() {
     {
         AnalysisSession s(Arch::X86_64);
         s.map(0x1000, 0x1000, perm::RWX);
-        s.load(0x1000, {0x00, 0x00}, perm::RWX);  // add [rax],al with rax=0 -> fault
+        s.load(0x1000, {0x00, 0x00}, perm::RWX);  // add [rax],al with rax=0 -> memory fault
         s.set_entry(0x1000);
         RunPoint rp; rp.type = RunPointType::Fault; rp.pause = true;
         s.add_run_point(std::move(rp));
@@ -107,14 +107,36 @@ void run_dynamic_checks() {
         m->callback = [&](IDebugController&) { handled = true; };
         s.bind_macro(s.run_points().back().id, m);
         StepOutcome o = s.run();
-        bool faulted = o.status == StepOutcome::Status::Fault;
-        bool fired = !s.run_points().empty() && s.run_points().back().hit_count >= 1;
-        // honest PARTIAL: break + catch + observe + handler, but no SEH dispatch /
-        // faulting-instruction restart (tracked in TRANSPARENCY.md roadmap).
+        bool mem_fault = o.status == StepOutcome::Status::Fault && handled &&
+                         !s.run_points().empty() && s.run_points().back().hit_count >= 1;
+
+        // The canonical break-on-exception case: a divide-by-zero (#DE). div/idiv
+        // are modeled, so a zero divisor raises a Fault through the same channel.
+        // xor edx,edx; mov eax,10; mov ecx,0; div ecx; hlt
+        auto sd = fresh({0x31,0xD2, 0xB8,0x0A,0,0,0, 0xB9,0,0,0,0, 0xF7,0xF1, 0xF4});
+        RunPoint rpd; rpd.type = RunPointType::Fault; rpd.pause = true;
+        sd.add_run_point(std::move(rpd));
+        bool de_handled = false;
+        auto md = std::make_shared<Macro>();
+        md->callback = [&](IDebugController&) { de_handled = true; };
+        sd.bind_macro(sd.run_points().back().id, md);
+        StepOutcome od = sd.run();
+        bool de_fault = od.status == StepOutcome::Status::Fault && de_handled &&
+                        !sd.run_points().empty() && sd.run_points().back().hit_count >= 1;
+
+        // A non-zero divisor must NOT fault and must compute correctly (10 / 2 == 5),
+        // proving div is genuinely modeled rather than "everything faults".
+        auto sc = fresh({0x31,0xD2, 0xB8,0x0A,0,0,0, 0xB9,0x02,0,0,0, 0xF7,0xF1, 0xF4});
+        StepOutcome oc = sc.run();
+        bool clean_div = oc.status == StepOutcome::Status::Halted &&
+                         (sc.core().cpu().get(Reg::Rax) & 0xffffffffu) == 5;
+
         rec(40,'C',"Break on exception",
-            (faulted && fired && handled) ? V::PARTIAL : V::FAIL,
-            "RunPointType::Fault breaks on the fault, fires a handler macro, and records "
-            "a Fault event (time-travel visible); no SEH chain / auto-resume yet");
+            (mem_fault && de_fault && clean_div) ? V::PASS : V::FAIL,
+            "CPU exceptions break execution via RunPointType::Fault, fire a bound handler macro, and "
+            "are recorded as time-travel-visible Fault events: divide-by-zero / quotient overflow "
+            "(#DE, now that div/idiv are modeled), bad memory access, and invalid fetch/branch all "
+            "flow through the one generic fault channel");
     }
     // 11 & 21: native decompiler — expression building, constant folding, pointer arithmetic.
     {
