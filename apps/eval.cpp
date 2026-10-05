@@ -136,6 +136,21 @@ void run_dynamic_checks() {
         rec(21, 'B', "Pointer-arithmetic simplification", addr_expr ? V::PARTIAL : V::FAIL,
             "address expressions base+index*scale+disp recovered from MemOperand (lea => expression)");
     }
+    // 20: switch/jump-table reconstruction.
+    {
+        std::vector<u8> code = {0x48,0x83,0xF8,0x03, 0x77,0x27, 0xFF,0x24,0xC5,0x35,0x10,0x00,0x00};
+        for (int v : {0xA0,0xA1,0xA2,0xA3,0xFF}) { const u8 blk[] = {0x48,0xC7,0xC0,(u8)v,0,0,0,0xC3}; for (u8 b : blk) code.push_back(b); }
+        for (Addr a : {0x100dULL,0x1015ULL,0x101dULL,0x1025ULL}) for (int i=0;i<8;++i) code.push_back((u8)(a>>(8*i)));
+        AnalysisSession s(Arch::X86_64);
+        s.map(0x1000, 0x1000, perm::RWX);
+        s.load(0x1000, code, perm::RWX);
+        s.set_entry(0x1000);
+        Cfg g = s.build_cfg(0x1000);
+        int cases = 0;
+        for (const auto& e : g.edges) if (e.from == 0x1006 && e.kind == EdgeKind::Jump) ++cases;
+        rec(20,'B',"Switch/case reconstruction", cases == 4 ? V::PASS : V::FAIL,
+            "jump-table recovery materializes case edges (bounded by the preceding cmp); decompiler emits a switch");
+    }
     // 17/23/25/84: constraint-based type inference.
     {
         auto dis = make_disassembler(Arch::X86_64);
@@ -413,7 +428,6 @@ int main(int argc, char** argv) {
     rec(16,'B',"Decompiler readability", V::PARTIAL, "linear-pseudocode fallback; Ghidra-native adapter behind a build flag");
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
     rec(19,'B',"Exception-handler visualization", V::NA, "no SEH model (see TRANSPARENCY roadmap: fault delivery)");
-    rec(20,'B',"Switch/case reconstruction", V::FAIL, "jump tables not reconstructed");
     rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
     rec(26,'B',"Virtual method resolution", V::NA, "no C++ RTTI/vtable recovery (roadmap: UML view)");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");

@@ -234,10 +234,10 @@ Each milestone is independently testable with dede's dependency-free harness, an
 
 > General test levers: **differential execution** (interpret a block, then interpret its lifted/optimized IR; assert equal reg+mem effects) is the correctness backbone for M1–M3. **Golden AST/text** tests for structuring. The **Ghidra adapter stays a differential oracle** in `dede-eval`, never the primary path.
 
-**M0 — Switch/jump-table recovery in the CFG builder.** *(Can land first; nearly independent.)*
-- Delivers: `cmp idx,N; ja default; jmp [table + idx*scale]` recognized; per-case + default edges materialized; block marked n-way. Uses the **live image + observed trace targets** (dede's edge) to read the table and bound it.
-- Files: extend `src/analysis/cfg.cpp`, `include/dede/analysis/cfg.hpp` (add `NwayNode`).
-- Test: hand-built switch samples; assert correct case edges. **Flips #20 (switch/case)** and prevents goto-soup downstream.
+**M0 — Switch/jump-table recovery in the CFG builder.** ✅ **Delivered.** *(Landed first; nearly independent.)*
+- Delivers: `cmp idx,N; ja default; jmp [table + idx*scale]` recognized; per-case edges materialized; the bound `cmp` is found in the preceding block (walking contiguous predecessors), the table is read from the **live image** (`m.scale ∈ {4,8}`, index-only `MemOperand`), and entries are truncated on a zero slot past the table end. The native decompiler consumes those edges and emits a real `switch (idx) { case k: … }` with the case bodies as a structured tail; `AnalysisSession::decompile` now hands the decompiler a whole-image reader (new `IDecompiler::decompile(code, addr, image)` overload) so a table in `.rodata` outside the `len` window is still recovered.
+- Files: `src/analysis/cfg.cpp` (`switch_targets`, `read_val`, predecessor walk), `src/decompiler/native.cpp` (n-way `BInfo::cases`, switch emission + residue tail, image-reader overload), `include/dede/decompiler/decompiler.hpp`, `src/session/analysis_session.cpp`.
+- Test: hand-built switch sample in `tests/test_cfg.cpp` (4 case edges) and `tests/test_decompiler.cpp` (`switch`/`case`/body constants). **Flips #20 (switch/case)** and prevents goto-soup downstream.
 
 **M1 — IR + lifter (maturity: generated).**
 - Delivers: `Varnode`/`IrInsn`/`IrBlock`/`IrFunction`; `DecodedInsn→IR` derived from the interpreter; flags as explicit 1-byte Varnodes; nested operands.

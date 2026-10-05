@@ -349,6 +349,7 @@ struct BInfo {
     std::vector<std::string> stmts;
     std::string condition;
     Addr taken = 0, nottaken = 0, jump = 0;
+    std::vector<Addr> cases;  // n-way (recovered jump table)
     bool terminal = false;
 };
 
@@ -373,13 +374,16 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         bi.stmts = bo.stmts;
         bi.condition = bo.condition;
         bi.terminal = bb.terminates;
+        std::vector<Addr> jumps;
         for (const auto& e : cfg.edges) {
             if (e.from != bb.start) continue;
             if (e.kind == EdgeKind::Taken) bi.taken = e.to;
             else if (e.kind == EdgeKind::NotTaken) bi.nottaken = e.to;
-            else if (e.kind == EdgeKind::Jump) bi.jump = e.to;
+            else if (e.kind == EdgeKind::Jump) jumps.push_back(e.to);
             else if (e.kind == EdgeKind::Fallthrough) bi.nottaken = e.to;
         }
+        if (jumps.size() == 1) bi.jump = jumps[0];
+        else if (jumps.size() > 1) bi.cases = jumps;  // n-way jump table
         info[bb.start] = std::move(bi);
     }
     for (Addr n : nodes) {
@@ -388,6 +392,7 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         if (b.taken) s.push_back(b.taken);
         if (b.nottaken) s.push_back(b.nottaken);
         if (b.jump) s.push_back(b.jump);
+        for (Addr c : b.cases) s.push_back(c);  // n-way switch successors
         if (s.empty()) s.push_back(kExit);
         succ[n] = s;
         for (Addr t : s) preds[t].push_back(n);
@@ -456,6 +461,16 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
             }
             if (!collect) for (const auto& s : b.stmts) body << pad << s << "\n";
 
+            if (!b.cases.empty()) {  // recovered jump table -> switch
+                if (!collect) body << pad << "switch (idx) {\n";
+                for (std::size_t i = 0; i < b.cases.size(); ++i) {
+                    if (collect) need_label.insert(b.cases[i]);
+                    else body << pad << "    case " << i << ": goto loc_" << hexa(b.cases[i]) << ";\n";
+                }
+                if (!collect) body << pad << "}\n";
+                return;
+            }
+
             if (!b.condition.empty() && b.taken && b.nottaken) {
                 bool back = dom.count(n) && (dom.at(n).count(b.taken) || dom.at(n).count(b.nottaken));
                 Addr j = ipdom_of(n, pdom);
@@ -484,7 +499,37 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         }
     };
     seen.clear(); emit(entry, kExit, 0, true);
+    // residue: blocks reached only via case gotos get a label and a linear tail;
+    // their own goto targets must be labelled too, so register them before pass 2.
+    std::set<Addr> reached = seen;
+    for (Addr n : nodes) {
+        if (reached.count(n)) continue;
+        need_label.insert(n);
+        const BInfo& b = info.at(n);
+        for (Addr c : b.cases) need_label.insert(c);
+        if (b.taken) need_label.insert(b.taken);
+        if (b.nottaken) need_label.insert(b.nottaken);
+        if (b.jump) need_label.insert(b.jump);
+    }
     seen.clear(); body.str(""); emit(entry, kExit, 0, false);
+    // emit the residue blocks linearly after the structured body
+    for (Addr n : nodes) {
+        if (seen.count(n)) continue;
+        const BInfo& b = info.at(n);
+        body << "loc_" << hexa(n) << ":\n";
+        for (const auto& s : b.stmts) body << "    " << s << "\n";
+        if (!b.cases.empty()) {
+            body << "    switch (idx) {\n";
+            for (std::size_t i = 0; i < b.cases.size(); ++i) body << "        case " << i << ": goto loc_" << hexa(b.cases[i]) << ";\n";
+            body << "    }\n";
+        } else if (!b.condition.empty() && b.taken) {
+            body << "    if (" << b.condition << ") goto loc_" << hexa(b.taken) << ";\n";
+            if (b.nottaken) body << "    goto loc_" << hexa(b.nottaken) << ";\n";
+        } else if (b.jump) body << "    goto loc_" << hexa(b.jump) << ";\n";
+        else if (b.terminal) body << "    return rax;\n";
+        else if (b.nottaken) body << "    goto loc_" << hexa(b.nottaken) << ";\n";
+        seen.insert(n);
+    }
 
     // assemble: typed signature + local declarations + body
     std::ostringstream os;
@@ -516,6 +561,20 @@ public:
         ByteReader read = [&code, addr](Addr a) -> std::optional<u8> {
             if (a >= addr && a < addr + code.size()) return code[a - addr];
             return std::nullopt;
+        };
+        return decompile_function(dis_, read, addr);
+    }
+
+    // With an image oracle: read code from the `code` window, but fall back to
+    // the full image for anything beyond it (the jump table in .rodata). The
+    // window still bounds the instruction sweep; only out-of-window *data* reads
+    // reach into the image.
+    Result<std::string> decompile(const std::vector<u8>& code, Addr addr,
+                                  const DecompReader& image) override {
+        if (code.empty()) return make_error("decompile: empty");
+        ByteReader read = [&code, addr, &image](Addr a) -> std::optional<u8> {
+            if (a >= addr && a < addr + code.size()) return code[a - addr];
+            return image ? image(a) : std::nullopt;
         };
         return decompile_function(dis_, read, addr);
     }

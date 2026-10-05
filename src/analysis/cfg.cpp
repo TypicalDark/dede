@@ -44,6 +44,17 @@ std::optional<Addr> direct_target(const DecodedInsn& in) {
     return std::nullopt;
 }
 
+// Read a little-endian value of `size` bytes; nullopt if any byte is unmapped.
+std::optional<u64> read_val(const ByteReader& read, Addr a, unsigned size) {
+    u64 v = 0;
+    for (unsigned i = 0; i < size; ++i) {
+        auto b = read(a + i);
+        if (!b) return std::nullopt;
+        v |= static_cast<u64>(*b) << (8 * i);
+    }
+    return v;
+}
+
 }  // namespace
 
 Cfg build_cfg(const IDisassembler& disasm, const ByteReader& read, Addr entry, std::size_t max_blocks) {
@@ -55,12 +66,14 @@ Cfg build_cfg(const IDisassembler& disasm, const ByteReader& read, Addr entry, s
     std::set<Addr> leaders{entry};
     std::set<Addr> swept;
     std::deque<Addr> wl{entry};
+    std::map<Addr, std::vector<Addr>> switch_targets;  // indirect-jmp addr -> case targets
     while (!wl.empty() && insns.size() < max_blocks * 64) {
         Addr a = wl.front();
         wl.pop_front();
         if (swept.count(a)) continue;
         swept.insert(a);
         Addr pc = a;
+        std::optional<std::pair<Reg, u64>> last_cmp;  // bound for a jump table
         while (true) {
             if (insns.count(pc)) break;  // joins an already-decoded run
             auto bytes = read_insn_bytes(read, pc);
@@ -70,9 +83,52 @@ Cfg build_cfg(const IDisassembler& disasm, const ByteReader& read, Addr entry, s
             DecodedInsn in = r.value();
             Addr next = in.addr + in.size;
             insns.emplace(pc, in);
+            if (in.mnemonic == "cmp" && in.operands.size() == 2 &&
+                in.operands[0].kind == OpKind::Reg && in.operands[1].kind == OpKind::Imm)
+                last_cmp = {in.operands[0].reg, static_cast<u64>(in.operands[1].imm)};
             if (in.cf.is_ret || in.mnemonic == "hlt") break;
             if (in.cf.is_branch) {
                 if (auto t = direct_target(in)) { leaders.insert(*t); wl.push_back(*t); }
+                else if (!in.cf.is_cond_branch && !in.operands.empty() &&
+                         in.operands[0].kind == OpKind::Mem) {
+                    // Indirect jmp through a table: jmp [table + idx*scale].
+                    const MemOperand& m = in.operands[0].mem;
+                    if (m.has_index && !m.has_base && (m.scale == 8 || m.scale == 4) && m.disp != 0) {
+                        Addr table = static_cast<Addr>(m.disp);
+                        // The bound `cmp idx, N` is usually in a preceding block (before
+                        // the `ja default`), so walk back over contiguous predecessors.
+                        std::optional<u64> bound;
+                        if (last_cmp && last_cmp->first == m.index) bound = last_cmp->second;
+                        else {
+                            Addr cur = in.addr;
+                            for (int step = 0; step < 16 && !bound; ++step) {
+                                Addr pred = 0; bool found = false;
+                                for (Addr d = 1; d <= 15; ++d) {
+                                    auto it = insns.find(cur - d);
+                                    if (it != insns.end() && it->second.addr + it->second.size == cur) { pred = cur - d; found = true; break; }
+                                }
+                                if (!found) break;
+                                const DecodedInsn& pi = insns.at(pred);
+                                if (pi.mnemonic == "cmp" && pi.operands.size() == 2 && pi.operands[0].kind == OpKind::Reg &&
+                                    pi.operands[0].reg == m.index && pi.operands[1].kind == OpKind::Imm) { bound = static_cast<u64>(pi.operands[1].imm); break; }
+                                if (pi.cf.is_ret || (pi.cf.is_branch && !pi.cf.is_cond_branch)) break;  // block boundary
+                                cur = pred;
+                            }
+                        }
+                        u64 count = bound ? *bound + 1 : 64;
+                        std::vector<Addr> tgts;
+                        for (u64 i = 0; i < count && i < 256; ++i) {
+                            auto v = read_val(read, table + i * m.scale, m.scale);
+                            if (!v) break;
+                            Addr tgt = static_cast<Addr>(*v);
+                            if (tgt == 0) break;  // zero-filled past the end of the table
+                            tgts.push_back(tgt);
+                            leaders.insert(tgt);
+                            wl.push_back(tgt);
+                        }
+                        if (!tgts.empty()) switch_targets[in.addr] = std::move(tgts);
+                    }
+                }
                 if (in.cf.is_cond_branch) { leaders.insert(next); wl.push_back(next); }
                 break;
             }
@@ -105,6 +161,9 @@ Cfg build_cfg(const IDisassembler& disasm, const ByteReader& read, Addr entry, s
                     cfg.edges.push_back({L, next, EdgeKind::NotTaken});
                 } else if (t) {
                     cfg.edges.push_back({L, *t, EdgeKind::Jump});
+                } else if (auto sw = switch_targets.find(in.addr); sw != switch_targets.end()) {
+                    // recovered jump table: one edge per case target
+                    for (Addr tgt : sw->second) cfg.edges.push_back({L, tgt, EdgeKind::Jump});
                 } else {
                     bb.terminates = true;  // indirect jump: unknown successor
                 }

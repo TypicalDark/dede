@@ -176,7 +176,15 @@ std::vector<DecodedInsn> AnalysisSession::disassemble(Addr addr, std::size_t cou
 Result<std::string> AnalysisSession::decompile(Addr addr, u64 len) {
     auto code = read_bytes(addr, static_cast<unsigned>(len));
     if (!code) return code.error();
-    return decompiler_->decompile(code.value(), addr);
+    // Hand the decompiler a reader over the whole image too, so a jump table in
+    // .rodata (outside the `len` window) is still recovered for switch rebuilding.
+    const GuestMemory& mem = core_.memory();
+    DecompReader image = [&mem](Addr a) -> std::optional<u8> {
+        auto b = mem.read8(a);
+        if (!b) return std::nullopt;
+        return b.value();
+    };
+    return decompiler_->decompile(code.value(), addr, image);
 }
 
 Cfg AnalysisSession::build_cfg(Addr entry) const {

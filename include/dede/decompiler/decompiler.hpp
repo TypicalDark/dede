@@ -7,7 +7,9 @@
 // something honest. Passes over the decoded stream are Visitors.
 #pragma once
 
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,6 +18,11 @@
 
 namespace dede {
 
+// A byte oracle over the whole loaded image (same shape as the CFG reader): it
+// lets the decompiler read code-adjacent *data* — jump tables in .rodata — that
+// may lie outside the `code` window handed to decompile().
+using DecompReader = std::function<std::optional<u8>(Addr)>;
+
 class IDecompiler {
 public:
     virtual ~IDecompiler() = default;
@@ -23,6 +30,15 @@ public:
 
     // Decompile `code` (loaded at `addr`) into pseudocode text.
     virtual Result<std::string> decompile(const std::vector<u8>& code, Addr addr) = 0;
+
+    // As above, but with a reader over the full image so jump tables outside the
+    // `code` window are still recovered. The default ignores it (the bounded
+    // `code` view is all some backends have), so existing callers keep working.
+    virtual Result<std::string> decompile(const std::vector<u8>& code, Addr addr,
+                                          const DecompReader& image) {
+        (void)image;
+        return decompile(code, addr);
+    }
 };
 
 // Visitor (GoF) over decoded instructions. A decompiler pass implements this and

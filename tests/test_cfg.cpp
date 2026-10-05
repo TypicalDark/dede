@@ -72,6 +72,34 @@ TEST("call is a reference, not an intraprocedural flow edge") {
     for (const auto& e : g.edges) CHECK(e.to != 0x1010u);
 }
 
+TEST("CFG recovers a jump table (switch/case reconstruction)") {
+    // cmp rax,3; ja default; jmp [table+rax*8]; 4 cases; default; table(4 quads)
+    std::vector<u8> code = {0x48, 0x83, 0xF8, 0x03, 0x77, 0x27, 0xFF, 0x24, 0xC5, 0x35, 0x10, 0x00, 0x00};
+    // 0x100d..0x1034: five `mov rax,0xNN; ret` case bodies (4 cases + default at 0x102d).
+    for (int v : {0xA0, 0xA1, 0xA2, 0xA3, 0xFF}) {
+        const u8 blk[] = {0x48, 0xC7, 0xC0, (u8)v, 0x00, 0x00, 0x00, 0xC3};
+        for (u8 b : blk) code.push_back(b);
+    }
+    // 0x1035: the jump table (4 quads) referenced by `jmp [rax*8 + 0x1035]`.
+    for (Addr a : {0x100dULL, 0x1015ULL, 0x101dULL, 0x1025ULL})
+        for (int i = 0; i < 8; ++i) code.push_back((u8)(a >> (8 * i)));
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+    Cfg g = s.build_cfg(0x1000);
+    // the indirect-jmp block (0x1006) must have exactly the 4 case edges
+    int cases = 0;
+    for (const auto& e : g.edges)
+        if (e.from == 0x1006 && e.kind == EdgeKind::Jump) ++cases;
+    CHECK_EQ(cases, 4);
+    for (Addr t : {0x100dULL, 0x1015ULL, 0x101dULL, 0x1025ULL}) {
+        bool found = false;
+        for (const auto& e : g.edges) if (e.from == 0x1006 && e.to == t) found = true;
+        CHECK(found);
+    }
+}
+
 TEST("pointer-encryption detector flags PTR_MANGLE-style mangling") {
     // xor rax, fs:[0x30] ; ror rax, 0x11 ; hlt  (glibc pointer guard)
     std::vector<u8> code = {0x64,0x48,0x33,0x04,0x25,0x30,0,0,0, 0x48,0xC1,0xC8,0x11, 0xF4};
