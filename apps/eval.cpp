@@ -225,6 +225,18 @@ void run_dynamic_checks() {
             "detects SEH frame manipulation (fs:[0] TIB ExceptionList install/save) and deliberate "
             "faults (ud2 / int 0x29) used to drive an installed handler; distinct from the TLS cookie");
     }
+    // 66: lazy-init / deferred-validation (double-checked one-time init) detection.
+    {
+        // cmp [0x4000],0 ; jne skip ; mov [0x4000],1 ; skip: ret
+        auto s = fresh({0x48,0x83,0x3C,0x25,0x00,0x40,0x00,0x00,0x00, 0x75,0x0C,
+                        0x48,0xC7,0x04,0x25,0x00,0x40,0x00,0x00,0x00,0x01,0x00,0x00,0x00, 0xC3});
+        auto f = detect(Arch::X86_64, reader_of(s), 0x1000, 8);
+        bool lazy = false;
+        for (const auto& x : f) if (x.category == "lazy-init") lazy = true;
+        rec(66,'D',"Lazy-init / deferred validation", lazy ? V::PASS : V::FAIL,
+            "structural scan flags the guarded one-time-init idiom (test global -> conditional skip -> "
+            "store same global), i.e. double-checked lazy init / deferred validation");
+    }
     // 6 & 70: call graph
     {
         auto s = fresh(kLoop);
@@ -467,7 +479,6 @@ int main(int argc, char** argv) {
     rec(57,'D',"Code-integrity-check identification", V::PARTIAL, "W^X + reads-of-code detectable; dedicated detector pending");
     rec(58,'D',"Obfuscation pattern detection", V::PARTIAL, "NOP-ratio/opcode anomaly + runtime SMC; more patterns pending");
     rec(64,'D',"Global-state dependency detection", V::PARTIAL, "who_wrote + watchpoints");
-    rec(66,'D',"Lazy-init / deferred validation", V::FAIL, "not modelled");
     rec(68,'D',"Callback-based protection detection", V::PARTIAL, "indirect-call detection via CFG");
     rec(69,'D',"Template/macro obfuscation detection", V::NA, "source construct");
     rec(71,'E',"Scripting language for custom analysis", V::PARTIAL, "shell command language + recorded macros; Luau binding behind a build flag");
@@ -538,6 +549,9 @@ int main(int argc, char** argv) {
     for (auto& r : rows)
         f << "| " << r.id << " | " << r.section << " | " << r.title << " | **" << vstr(r.verdict) << "** | " << r.evidence << " |\n";
     f << "\n## In-scope gaps to close (FAIL)\n\n";
+    if (fail == 0)
+        f << "_None — every in-scope capability now scores PASS or PARTIAL. Remaining work is "
+             "deepening PARTIALs (full SSA/data-flow, struct/array recovery) and out-of-scope (N/A) items._\n";
     for (auto& r : rows) if (r.verdict==V::FAIL) f << "- **#" << r.id << " " << r.title << "** — " << r.evidence << "\n";
     f.close();
 

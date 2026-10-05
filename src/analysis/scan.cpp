@@ -6,8 +6,10 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <string>
 
 namespace dede {
 
@@ -231,6 +233,62 @@ const std::vector<std::unique_ptr<IDetector>>& detectors() {
     return d;
 }
 
+// The `[base+index*scale+disp]` token of an instruction's memory reference, used
+// to tell whether two instructions touch the same global.
+std::optional<std::string> mem_text(const DecodedInsn& in) {
+    auto l = in.op_str.find('[');
+    if (l == std::string::npos) return std::nullopt;
+    auto r = in.op_str.find(']', l);
+    if (r == std::string::npos) return std::nullopt;
+    return in.op_str.substr(l, r - l + 1);
+}
+
+bool has_mem_operand(const DecodedInsn& in) {
+    for (const auto& op : in.operands) if (op.kind == OpKind::Mem) return true;
+    return false;
+}
+
+// Structural (multi-instruction) idiom scan over the decoded window. Lazy-init /
+// deferred-validation is the double-checked one-time-init guard: a global is
+// tested (against 0/null), a conditional branch skips the init, and the guarded
+// path stores that same global exactly once. Recognised in two shapes:
+//   A) cmp/test [g], ... ; jcc ; ... ; mov [g], v
+//   B) mov r,[g] ; test r,r (or cmp r,0) ; jcc ; ... ; mov [g], v
+void scan_lazy_init(const std::vector<DecodedInsn>& insns, std::vector<Finding>& out) {
+    constexpr std::size_t kWindow = 10;  // init usually sits right after the guard
+    auto store_to = [](const DecodedInsn& in, const std::string& m) {
+        if (in.mnemonic != "mov" || in.operands.empty() || in.operands[0].kind != OpKind::Mem) return false;
+        auto mt = mem_text(in);
+        return mt && *mt == m;
+    };
+    for (std::size_t i = 0; i + 1 < insns.size(); ++i) {
+        std::optional<std::string> g;  // the guarded global's memory token
+        std::size_t jcc = 0;
+        // Shape A: the compare itself reads the global.
+        if ((insns[i].mnemonic == "cmp" || insns[i].mnemonic == "test") && has_mem_operand(insns[i]) &&
+            insns[i + 1].cf.is_cond_branch) {
+            g = mem_text(insns[i]);
+            jcc = i + 1;
+        }
+        // Shape B: load the global, then test the register, then branch.
+        else if (i + 2 < insns.size() && insns[i].mnemonic == "mov" && insns[i].operands.size() == 2 &&
+                 insns[i].operands[0].kind == OpKind::Reg && insns[i].operands[1].kind == OpKind::Mem &&
+                 (insns[i + 1].mnemonic == "test" || insns[i + 1].mnemonic == "cmp") &&
+                 insns[i + 2].cf.is_cond_branch) {
+            g = mem_text(insns[i]);
+            jcc = i + 2;
+        }
+        if (!g) continue;
+        for (std::size_t k = jcc + 1; k < insns.size() && k <= jcc + kWindow; ++k)
+            if (store_to(insns[k], *g)) {
+                out.push_back({"lazy-init",
+                               "guarded one-time init (test global -> conditional skip -> store same global)",
+                               insns[i].addr, insns[i].text(), "notice"});
+                break;
+            }
+    }
+}
+
 }  // namespace
 
 std::vector<Finding> detect(Arch arch, const ByteReader& read, Addr addr, std::size_t count) {
@@ -240,6 +298,7 @@ std::vector<Finding> detect(Arch arch, const ByteReader& read, Addr addr, std::s
     std::vector<Finding> out;
     for (const auto& in : insns)
         for (const auto& det : detectors()) det->inspect(in, out);
+    scan_lazy_init(insns, out);  // multi-instruction structural idioms
     return out;
 }
 

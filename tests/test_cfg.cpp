@@ -162,4 +162,39 @@ TEST("exception-handler detector flags SEH frame manipulation, not the TLS cooki
     CHECK(!false_seh);
 }
 
+TEST("lazy-init detector flags a guarded one-time init, not a bare compare") {
+    // cmp [0x4000],0 ; jne skip ; mov [0x4000],1 ; skip: ret  (double-checked init)
+    std::vector<u8> code = {0x48,0x83,0x3C,0x25,0x00,0x40,0x00,0x00,0x00, 0x75,0x0C,
+                            0x48,0xC7,0x04,0x25,0x00,0x40,0x00,0x00,0x00,0x01,0x00,0x00,0x00, 0xC3};
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+    auto reader = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    bool lazy = false;
+    for (const auto& f : detect(Arch::X86_64, reader, 0x1000, 8))
+        if (f.category == "lazy-init") lazy = true;
+    CHECK(lazy);
+
+    // A compare + branch that does NOT store back to the same global is not lazy-init.
+    std::vector<u8> plain = {0x48,0x83,0x3C,0x25,0x00,0x40,0x00,0x00,0x00, 0x75,0x01, 0x90, 0xC3};
+    AnalysisSession s2;
+    s2.map(0x2000, 0x1000, perm::RWX);
+    s2.load(0x2000, plain, perm::RWX);
+    s2.set_entry(0x2000);
+    auto reader2 = [&s2](Addr a) -> std::optional<u8> {
+        auto b = s2.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    bool false_lazy = false;
+    for (const auto& f : detect(Arch::X86_64, reader2, 0x2000, 8))
+        if (f.category == "lazy-init") false_lazy = true;
+    CHECK(!false_lazy);
+}
+
 int main() { return dede::test::run_all(); }
