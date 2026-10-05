@@ -269,8 +269,11 @@ TEST("call-stack unwinder recovers frames and flags a smashed return address") {
     CHECK(rep.frames[1].ret_call_preceded);  // return into main
     CHECK(rep.frames[2].is_base);            // main: chain terminates at rbp==0
 
-    // Smash a saved return address -> a non-call-preceded value must be flagged.
-    s.core().memory().write(rep.frames[1].frame_ptr + 8, std::vector<u8>{0x41,0x41,0x41,0x41,0,0,0,0});
+    // Smash a saved return address to point into MAPPED mid-code (0x100A, f's
+    // push rbp — a real instruction boundary but not a call site). The best-effort
+    // call-preceded check must flag it (the value is readable, so this exercises
+    // the heuristic's discrimination, not merely an unmapped read).
+    s.core().memory().write(rep.frames[1].frame_ptr + 8, std::vector<u8>{0x0A,0x10,0,0,0,0,0,0});
     auto bad = check_stack_integrity(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));
     CHECK(!bad.intact());
     CHECK(!bad.violations.empty());

@@ -525,9 +525,10 @@ bool Shell::execute(const std::string& line) {
                  << "  rbp=" << hex(f.frame_ptr)
                  << (f.is_base ? "  (base)" : f.ret_call_preceded ? "" : "  <- NOT call-preceded!") << "\n";
         }
-        if (rep.intact()) out_ << "stack integrity: intact (" << rep.frames.size() << " frame(s))\n";
-        else out_ << "stack integrity: " << rep.violations.size()
-                  << " susp: return address(es) not call-preceded (corruption / ROP?)\n";
+        if (rep.intact()) out_ << "return addresses: all call-preceded (" << rep.frames.size()
+                               << " frame(s); best-effort check)\n";
+        else out_ << "return addresses: " << rep.violations.size()
+                  << " not call-preceded (possible corruption / ROP)\n";
         return true;
     }
     if (cmd == "opcodes") {

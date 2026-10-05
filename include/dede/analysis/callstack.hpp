@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Frame-pointer (rbp-chain) stack unwinding + return-address integrity, computed
-// from the machine state at the *current* tick. Because it reads live state
-// rather than accumulating a forward-only shadow stack, the result is correct at
-// any point reached by time-travel (seek/step_back) — unwind after stepping back
-// and you get the stack as it was then. Integrity: a legitimate return address is
-// immediately preceded by a `call` instruction; a frame whose saved return
-// address is NOT call-preceded is flagged (stack smashing / ROP / overwrite).
+// Frame-pointer (rbp-chain) stack unwinding + a best-effort return-address check,
+// computed from the machine state at the *current* tick. Because it reads live
+// state rather than accumulating a forward-only shadow stack, the unwind is
+// correct at any point reached by time-travel (seek/step_back) — unwind after
+// stepping back and you get the stack as it was then.
+//
+// Scope/limits (be honest about them):
+//  - Unwinding needs rbp-based frames; frameless (`-fomit-frame-pointer` / many
+//    -O2 functions) or mid-prologue frames are not reconstructed (this is how
+//    gdb/lldb unwind without CFI/DWARF).
+//  - The integrity check is a BEST-EFFORT heuristic: a legitimate return address
+//    is immediately preceded by a `call`, so a saved return address that is not
+//    call-preceded is flagged (stack smashing / ROP / overwrite). It is byte-
+//    level, so a determined attacker who sprays call-shaped bytes before the
+//    target can evade it; an exact shadow-stack CFI (compare each ret against the
+//    address the matching call pushed) is the documented next step.
 #pragma once
 
 #include <vector>

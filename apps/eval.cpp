@@ -162,11 +162,16 @@ void run_dynamic_checks() {
         bool deep = at_hlt.size() >= 3, shallow = at_entry.size() == 2 && back.size() == 2;
         bool rets_ok = at_hlt.size() >= 2 && at_hlt[0].ret_call_preceded && at_hlt[1].ret_call_preceded;
         rec(37,'C',"Call tracing / call stack", (deep && shallow && rets_ok) ? V::PASS : V::FAIL,
-            "frame-pointer (rbp-chain) unwinder recovers the call stack with validated return "
-            "addresses; computed from live state, so it is correct at any tick reached by time-"
-            "travel (the stack shrinks when you step back, not a stale forward-only shadow stack)");
+            "frame-pointer (rbp-chain) unwinder recovers the call stack with its return addresses; "
+            "computed from live state, so it is correct at any tick reached by time-travel (the stack "
+            "shrinks when you step back, not a stale forward-only shadow stack). Needs rbp-based "
+            "frames (frameless/-fomit-frame-pointer unwound only with CFI, as in gdb/lldb)");
 
-        // --- 38: return-address integrity (CFI: a real return address is call-preceded).
+        // --- 38: best-effort return-address check (call-preceded heuristic). A real
+        // return address is immediately preceded by a `call`; a clean run reports no
+        // violations, and a saved return address pointing into mapped mid-code (not a
+        // call site) is flagged. This is a heuristic, not exact CFI — byte-sprayed
+        // call sites can evade it; an exact shadow-stack CFI is the documented next step.
         auto s2 = fresh(code);
         s2.core().cpu().set(Reg::Rbp, 0);
         auto rd2 = reader_of(s2);
@@ -174,13 +179,14 @@ void run_dynamic_checks() {
         auto clean = check_stack_integrity(*dis, rd2, s2.rip(), s2.read_reg(Reg::Rbp));
         bool intact = clean.intact() && clean.frames.size() >= 3;
         Addr victim = clean.frames.size() >= 2 ? clean.frames[1].frame_ptr : 0;
-        s2.core().memory().write(victim + 8, std::vector<u8>{0x41,0x41,0x41,0x41,0,0,0,0});
+        s2.core().memory().write(victim + 8, std::vector<u8>{0x0A,0x10,0,0,0,0,0,0});  // -> 0x100A: mapped, mid-code, not a call site
         auto smashed = check_stack_integrity(*dis, rd2, s2.rip(), s2.read_reg(Reg::Rbp));
         bool caught = !smashed.intact() && !smashed.violations.empty();
-        rec(38,'C',"Return-address / stack integrity", (intact && caught) ? V::PASS : V::FAIL,
-            "exact CFI over the deterministic trace: a legitimate return address is immediately "
-            "preceded by a call; a clean stack reports 0 violations, and overwriting a saved return "
-            "address (stack smashing / ROP) is flagged");
+        rec(38,'C',"Return-address / stack integrity", (intact && caught) ? V::PARTIAL : V::FAIL,
+            "best-effort return-address check over the time-travel stack: a legitimate return address "
+            "is call-preceded, so a clean run reports 0 violations and a return address overwritten to "
+            "point into mapped non-call code is flagged (stack smashing / ROP). Heuristic, not exact "
+            "CFI — sprayed call-shaped bytes can evade it; exact shadow-stack CFI is the next step");
     }
     // 11 & 21: native decompiler — expression building, constant folding, pointer arithmetic.
     {
