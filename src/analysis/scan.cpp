@@ -186,6 +186,36 @@ public:
     }
 };
 
+class ExceptionHandlerDetector final : public IDetector {
+public:
+    std::string name() const override { return "exception-handler"; }
+    void inspect(const DecodedInsn& in, std::vector<Finding>& out) const override {
+        // SEH-based protection manipulates the TIB ExceptionList at fs:[0] — the
+        // 32-bit structured-exception chain head. The classic prologue saves the
+        // old head (`mov eax, fs:[0]`) and installs a new frame (`mov fs:[0],
+        // esp`). Both touch the absolute segment slot fs:[0] (disp 0, no base/
+        // index), which distinguishes it from the stack canary / TLS cookie at
+        // fs:[0x28]/fs:[0x30] (nonzero disp) handled by pointer-encryption.
+        if (in.op_str.find("fs:") != std::string::npos)
+            for (const auto& op : in.operands)
+                if (op.kind == OpKind::Mem && !op.mem.has_base && !op.mem.has_index && op.mem.disp == 0) {
+                    out.push_back({"exception-handler",
+                                   "SEH frame access (fs:[0] TIB ExceptionList install/save)",
+                                   in.addr, in.text(), "warning"});
+                    return;
+                }
+        // Deliberate faults that drive an installed handler to redirect control
+        // flow or detect a debugger (the handler sees/eats the exception).
+        if (is(in, "ud2"))
+            out.push_back({"exception-handler", "ud2 (deliberate #UD; exception-driven control flow)",
+                           in.addr, in.text(), "notice"});
+        else if (is(in, "int") && !in.operands.empty() && in.operands[0].kind == OpKind::Imm &&
+                 in.operands[0].imm == 0x29)
+            out.push_back({"exception-handler", "int 0x29 (__fastfail / exception-based guard)",
+                           in.addr, in.text(), "warning"});
+    }
+};
+
 const std::vector<std::unique_ptr<IDetector>>& detectors() {
     static std::vector<std::unique_ptr<IDetector>> d = [] {
         std::vector<std::unique_ptr<IDetector>> v;
@@ -195,6 +225,7 @@ const std::vector<std::unique_ptr<IDetector>>& detectors() {
         v.push_back(std::make_unique<CryptoDetector>());
         v.push_back(std::make_unique<VmDispatchDetector>());
         v.push_back(std::make_unique<PointerEncryptionDetector>());
+        v.push_back(std::make_unique<ExceptionHandlerDetector>());
         return v;
     }();
     return d;

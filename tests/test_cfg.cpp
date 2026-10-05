@@ -123,4 +123,43 @@ TEST("pointer-encryption detector flags PTR_MANGLE-style mangling") {
     CHECK(guard_rotate);
 }
 
+TEST("exception-handler detector flags SEH frame manipulation, not the TLS cookie") {
+    // mov rax, fs:[0] ; mov fs:[0], rsp ; ud2   (SEH install + deliberate fault)
+    std::vector<u8> code = {0x64,0x48,0x8B,0x04,0x25,0,0,0,0, 0x64,0x48,0x89,0x24,0x25,0,0,0,0, 0x0F,0x0B};
+    AnalysisSession s;
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+    auto reader = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    auto findings = detect(Arch::X86_64, reader, 0x1000, 3);
+    bool seh = false, ud2 = false;
+    for (const auto& f : findings) {
+        if (f.category == "exception-handler" && f.rule.find("SEH frame") != std::string::npos) seh = true;
+        if (f.category == "exception-handler" && f.rule.find("ud2") != std::string::npos) ud2 = true;
+    }
+    CHECK(seh);
+    CHECK(ud2);
+
+    // The stack canary / TLS cookie at fs:[0x30] (nonzero disp) must NOT be
+    // mistaken for an SEH frame — it is pointer-encryption, not fs:[0].
+    std::vector<u8> cookie = {0x64,0x48,0x33,0x04,0x25,0x30,0,0,0, 0xC3};  // xor rax, fs:[0x30]; ret
+    AnalysisSession s2;
+    s2.map(0x2000, 0x1000, perm::RWX);
+    s2.load(0x2000, cookie, perm::RWX);
+    s2.set_entry(0x2000);
+    auto reader2 = [&s2](Addr a) -> std::optional<u8> {
+        auto b = s2.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    bool false_seh = false;
+    for (const auto& f : detect(Arch::X86_64, reader2, 0x2000, 2))
+        if (f.category == "exception-handler") false_seh = true;
+    CHECK(!false_seh);
+}
+
 int main() { return dede::test::run_all(); }

@@ -214,6 +214,17 @@ void run_dynamic_checks() {
         rec(60,'D',"Pointer-encryption detection", found ? V::PASS : V::FAIL,
             "pointer-encryption detector flags TLS-cookie xor/rotate (PTR_MANGLE/EncodePointer)");
     }
+    // 63: exception-handler (SEH/VEH) protection detection.
+    {
+        // mov rax, fs:[0] ; mov fs:[0], rsp ; ud2   (classic SEH frame install + fault)
+        auto s = fresh({0x64,0x48,0x8B,0x04,0x25,0,0,0,0, 0x64,0x48,0x89,0x24,0x25,0,0,0,0, 0x0F,0x0B});
+        auto f = detect(Arch::X86_64, reader_of(s), 0x1000, 8);
+        bool seh = false;
+        for (const auto& x : f) if (x.category == "exception-handler") seh = true;
+        rec(63,'D',"Exception-handler protection detection", seh ? V::PASS : V::FAIL,
+            "detects SEH frame manipulation (fs:[0] TIB ExceptionList install/save) and deliberate "
+            "faults (ud2 / int 0x29) used to drive an installed handler; distinct from the TLS cookie");
+    }
     // 6 & 70: call graph
     {
         auto s = fresh(kLoop);
@@ -455,7 +466,6 @@ int main(int argc, char** argv) {
     rec(54,'D',"License-validation routine ID", V::PARTIAL, "strings + run points assist; not fully automated");
     rec(57,'D',"Code-integrity-check identification", V::PARTIAL, "W^X + reads-of-code detectable; dedicated detector pending");
     rec(58,'D',"Obfuscation pattern detection", V::PARTIAL, "NOP-ratio/opcode anomaly + runtime SMC; more patterns pending");
-    rec(63,'D',"Exception-handler protection detection", V::FAIL, "needs the fault/SEH model");
     rec(64,'D',"Global-state dependency detection", V::PARTIAL, "who_wrote + watchpoints");
     rec(66,'D',"Lazy-init / deferred validation", V::FAIL, "not modelled");
     rec(68,'D',"Callback-based protection detection", V::PARTIAL, "indirect-call detection via CFG");
