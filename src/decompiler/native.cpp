@@ -17,6 +17,7 @@
 #include "dede/analysis/cfg.hpp"
 #include "dede/decompiler/decompiler.hpp"
 #include "dede/ir/lifter.hpp"
+#include "dede/types/types.hpp"
 
 namespace dede {
 
@@ -246,21 +247,22 @@ struct Folder {
 // --- function emitter -------------------------------------------------------
 std::string decompile_function(const IDisassembler& dis, const ByteReader& read, Addr entry) {
     Cfg cfg = build_cfg(dis, read, entry);
-    std::ostringstream os;
-    char h[32];
-    std::snprintf(h, sizeof h, "%llx", (unsigned long long)entry);
-    os << "int64_t sub_" << h << "(void) {\n";
+    types::FuncTypes ft = types::infer_function(dis, read, entry);
 
     // which block starts are jump targets (need a label)?
     std::set<Addr> labels;
     for (const auto& e : cfg.edges) labels.insert(e.to);
 
+    // buffer the body first so declarations (which depend on written regs) lead
+    std::ostringstream body;
+    std::set<Reg> written_regs;
     for (const auto& bb : cfg.blocks) {
-        if (labels.count(bb.start)) { char b[24]; std::snprintf(b, sizeof b, "%llx", (unsigned long long)bb.start); os << "loc_" << b << ":\n"; }
+        if (labels.count(bb.start)) { char b[24]; std::snprintf(b, sizeof b, "%llx", (unsigned long long)bb.start); body << "loc_" << b << ":\n"; }
         ir::Block ib = ir::lift_block(bb);
         Folder f;
         BlockOut bo = f.run(ib);
-        for (const auto& s : bo.stmts) os << "    " << s << "\n";
+        for (const auto& [r, w] : f.written) if (w) written_regs.insert(r);
+        for (const auto& s : bo.stmts) body << "    " << s << "\n";
         // control-flow tail from the CFG
         Addr taken = 0, nottaken = 0, jump = 0;
         bool term = bb.terminates;
@@ -276,17 +278,31 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         std::snprintf(nb, sizeof nb, "%llx", (unsigned long long)nottaken);
         std::snprintf(jb, sizeof jb, "%llx", (unsigned long long)jump);
         if (!bo.condition.empty() && taken) {
-            os << "    if (" << bo.condition << ") goto loc_" << tb << ";\n";
-            if (nottaken) os << "    goto loc_" << nb << ";\n";
+            body << "    if (" << bo.condition << ") goto loc_" << tb << ";\n";
+            if (nottaken) body << "    goto loc_" << nb << ";\n";
         } else if (jump) {
-            os << "    goto loc_" << jb << ";\n";
+            body << "    goto loc_" << jb << ";\n";
         } else if (term) {
-            os << "    return rax;\n";
+            body << "    return rax;\n";
         } else if (nottaken) {
-            os << "    goto loc_" << nb << ";\n";
+            body << "    goto loc_" << nb << ";\n";
         }
     }
-    os << "}\n";
+
+    // assemble: typed signature + local declarations + body
+    std::ostringstream os;
+    os << ft.signature() << " {\n";
+    std::set<Reg> param_regs;
+    for (const auto& p : ft.params) param_regs.insert(p.reg);
+    bool any_decl = false;
+    for (Reg r : written_regs) {
+        if (param_regs.count(r) || r == Reg::Rsp || r == Reg::Rbp) continue;
+        types::LType t = ft.regs.count(r) ? ft.regs.at(r) : types::LType{};
+        os << "    " << types::c_type(t) << " " << std::string(reg_name(r)) << ";\n";
+        any_decl = true;
+    }
+    if (any_decl) os << "\n";
+    os << body.str() << "}\n";
     return os.str();
 }
 

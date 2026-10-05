@@ -24,6 +24,7 @@
 #include "dede/analysis/scan.hpp"
 #include "dede/loader/loader.hpp"
 #include "dede/session/analysis_session.hpp"
+#include "dede/types/types.hpp"
 
 using namespace dede;
 
@@ -134,6 +135,27 @@ void run_dynamic_checks() {
         bool addr_expr = c.find("* 4") != std::string::npos && c.find("+ 8") != std::string::npos;
         rec(21, 'B', "Pointer-arithmetic simplification", addr_expr ? V::PARTIAL : V::FAIL,
             "address expressions base+index*scale+disp recovered from MemOperand (lea => expression)");
+    }
+    // 17/23/25/84: constraint-based type inference.
+    {
+        auto dis = make_disassembler(Arch::X86_64);
+        std::vector<u8> code = {0x48,0x8B,0x07, 0x48,0x39,0xF0, 0x7C,0x07, 0x48,0xC7,0xC0,0x01,0,0,0, 0xC3, 0x31,0xC0, 0xC3};
+        ByteReader rd = [&code](Addr a) -> std::optional<u8> {
+            if (a >= 0x1000 && a < 0x1000 + code.size()) return code[a - 0x1000];
+            return std::nullopt;
+        };
+        auto ft = types::infer_function(*dis, rd, 0x1000);
+        bool ptr = ft.regs[Reg::Rdi].cls == types::TClass::Pointer;
+        bool sig = ft.params.size() >= 2;
+        bool sign = ft.regs[Reg::Rsi].sign == types::Sign::Signed;
+        rec(17,'B',"Type inference / struct recovery", ptr ? V::PARTIAL : V::FAIL,
+            "constraint lattice infers scalar width/sign + pointer-ness intra-function; struct recovery is a later milestone");
+        rec(23,'B',"Function signature inference", sig ? V::PARTIAL : V::FAIL,
+            "live-in SysV argument registers -> typed parameters + return type");
+        rec(25,'B',"Implicit cast detection", (ptr || sign) ? V::PARTIAL : V::FAIL,
+            "pointer deref emits a (uintN_t *) cast; signed/unsigned recovered from mnemonic + jcc");
+        rec(84,'E',"Type database / stdlib types", V::PARTIAL,
+            "native type lattice + C-type rendering; a libc/Win32 prototype DB is the documented next step");
     }
     // 60: pointer-encryption detection (PTR_MANGLE / EncodePointer).
     {
@@ -372,14 +394,11 @@ int main(int argc, char** argv) {
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
     rec(16,'B',"Decompiler readability", V::PARTIAL, "linear-pseudocode fallback; Ghidra-native adapter behind a build flag");
-    rec(17,'B',"Type inference / struct recovery", V::FAIL, "no type recovery (Ghidra backend would provide it)");
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
     rec(19,'B',"Exception-handler visualization", V::NA, "no SEH model (see TRANSPARENCY roadmap: fault delivery)");
     rec(20,'B',"Switch/case reconstruction", V::FAIL, "jump tables not reconstructed");
     rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
-    rec(23,'B',"Function signature inference", V::FAIL, "no parameter/type recovery in the fallback decompiler");
     rec(24,'B',"Variable scope/lifetime", V::FAIL, "needs the full decompiler backend");
-    rec(25,'B',"Implicit cast detection", V::FAIL, "needs type recovery");
     rec(26,'B',"Virtual method resolution", V::NA, "no C++ RTTI/vtable recovery (roadmap: UML view)");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
@@ -406,7 +425,6 @@ int main(int argc, char** argv) {
     rec(80,'E',"Cross-tool database import (IDA)", V::NA, "no IDB/BNDB import");
     rec(81,'E',"Incremental analysis / caching", V::PARTIAL, "Flyweight decode cache; no persisted analysis DB");
     rec(82,'E',"Annotation sync / collaboration", V::PARTIAL, "symbols + comments; no team sync");
-    rec(84,'E',"Type database / stdlib types", V::FAIL, "no type library yet");
     rec(85,'E',"Reporting / documentation generation", V::PASS, "this harness emits a Markdown report; CFG/arch DOT exports");
     rec(86,'F',"Workflow efficiency (<30 min)", V::PASS, "load->analyze->report is seconds for flat binaries");
     rec(87,'F',"Learning curve / documentation", V::PASS, "README + TUTORIAL (tiers 1-5) + ARCHITECTURE/PATTERNS/TRANSPARENCY docs");
