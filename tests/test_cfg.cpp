@@ -2,6 +2,7 @@
 #include <vector>
 
 #include "check.hpp"
+#include "dede/analysis/callstack.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/session/analysis_session.hpp"
 
@@ -238,6 +239,41 @@ TEST("anti-disassembly detector flags overlap / opaque pair / push-ret, not clea
     for (const auto& f : detect(Arch::X86_64, reader2, 0x3000, 8))
         if (f.category == "anti-disassembly") false_ad = true;
     CHECK(!false_ad);
+}
+
+TEST("call-stack unwinder recovers frames and flags a smashed return address") {
+    // main: push rbp;mov rbp,rsp;call f;hlt | f: ...;call g;hlt | g: push rbp;mov rbp,rsp;hlt
+    std::vector<u8> code = {0x55,0x48,0x89,0xE5, 0xE8,0x01,0,0,0, 0xF4,
+                           0x55,0x48,0x89,0xE5, 0xE8,0x05,0,0,0, 0xF4,
+                           0x90,0x90,0x90,0x90,
+                           0x55,0x48,0x89,0xE5, 0xF4};
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x2000, perm::RWX);
+    s.map(0x70000, 0x1000, perm::RW);
+    s.core().cpu().set(Reg::Rsp, 0x70800);
+    s.core().cpu().set(Reg::Rbp, 0);
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+    s.run();  // stops at g's hlt; rbp is g's frame
+
+    auto dis = make_disassembler(Arch::X86_64);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    auto rep = check_stack_integrity(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));
+    CHECK_EQ(rep.frames.size(), 3u);         // g, f, main
+    CHECK(rep.intact());                     // all return addresses are call-preceded
+    CHECK(rep.frames[0].ret_call_preceded);  // return into f
+    CHECK(rep.frames[1].ret_call_preceded);  // return into main
+    CHECK(rep.frames[2].is_base);            // main: chain terminates at rbp==0
+
+    // Smash a saved return address -> a non-call-preceded value must be flagged.
+    s.core().memory().write(rep.frames[1].frame_ptr + 8, std::vector<u8>{0x41,0x41,0x41,0x41,0,0,0,0});
+    auto bad = check_stack_integrity(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));
+    CHECK(!bad.intact());
+    CHECK(!bad.violations.empty());
 }
 
 int main() { return dede::test::run_all(); }

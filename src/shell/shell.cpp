@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "dede/analysis/arch_view.hpp"
+#include "dede/analysis/callstack.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/loader/loader.hpp"
 
@@ -153,6 +154,7 @@ bool Shell::execute(const std::string& line) {
             "  sym add <addr> <name>    name an address (shown in dis/stack)\n"
             "  find <start> <len> X     search memory (hex bytes or \"string\")\n"
             "  stack [n]                telescope the stack\n"
+            "  backtrace | bt           unwind the call stack + check return-address integrity\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -512,6 +514,20 @@ bool Shell::execute(const std::string& line) {
         double h = shannon_entropy(reader, arg_u64(1, 0), arg_u64(2, 0));
         out_ << "entropy = " << h << " bits/byte "
              << (h > 7.0 ? "(high — encrypted/compressed)" : h < 1.0 ? "(very low)" : "(normal)") << "\n";
+        return true;
+    }
+    if (cmd == "backtrace" || cmd == "bt") {
+        auto rep = check_stack_integrity(s_.arch(), reader, s_.rip(), s_.read_reg(Reg::Rbp));
+        out_ << "  #0  " << hex(s_.rip()) << annotate(s_.rip()) << "  (rip)\n";
+        for (std::size_t i = 0; i < rep.frames.size(); ++i) {
+            const auto& f = rep.frames[i];
+            out_ << "  #" << (i + 1) << "  " << hex(f.return_addr) << annotate(f.return_addr)
+                 << "  rbp=" << hex(f.frame_ptr)
+                 << (f.is_base ? "  (base)" : f.ret_call_preceded ? "" : "  <- NOT call-preceded!") << "\n";
+        }
+        if (rep.intact()) out_ << "stack integrity: intact (" << rep.frames.size() << " frame(s))\n";
+        else out_ << "stack integrity: " << rep.violations.size()
+                  << " susp: return address(es) not call-preceded (corruption / ROP?)\n";
         return true;
     }
     if (cmd == "opcodes") {

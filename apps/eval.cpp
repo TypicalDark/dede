@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "dede/analysis/callstack.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/loader/loader.hpp"
 #include "dede/session/analysis_session.hpp"
@@ -137,6 +138,49 @@ void run_dynamic_checks() {
             "are recorded as time-travel-visible Fault events: divide-by-zero / quotient overflow "
             "(#DE, now that div/idiv are modeled), bad memory access, and invalid fetch/branch all "
             "flow through the one generic fault channel");
+    }
+    // 37 & 38: call-stack unwinding (time-travel-correct) + return-address integrity.
+    {
+        // main: push rbp;mov rbp,rsp;call f;hlt | f: ...;call g;hlt | g: push rbp;mov rbp,rsp;hlt
+        std::vector<u8> code = {0x55,0x48,0x89,0xE5, 0xE8,0x01,0,0,0, 0xF4,
+                                0x55,0x48,0x89,0xE5, 0xE8,0x05,0,0,0, 0xF4,
+                                0x90,0x90,0x90,0x90,
+                                0x55,0x48,0x89,0xE5, 0xF4};
+        auto dis = make_disassembler(Arch::X86_64);
+
+        // --- 37: the stack is computed from live state, so it is time-travel-correct.
+        auto s = fresh(code);
+        s.core().cpu().set(Reg::Rbp, 0);
+        auto rd = reader_of(s);
+        s.run_to(0x1018);                       // g's entry, before g builds its frame
+        Tick t_entry = s.core().tick();
+        auto at_entry = unwind_stack(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));  // f, main
+        s.run();                                // into g (its hlt)
+        auto at_hlt = unwind_stack(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));    // g, f, main
+        s.seek(t_entry);                        // time-travel back
+        auto back = unwind_stack(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));      // f, main again
+        bool deep = at_hlt.size() >= 3, shallow = at_entry.size() == 2 && back.size() == 2;
+        bool rets_ok = at_hlt.size() >= 2 && at_hlt[0].ret_call_preceded && at_hlt[1].ret_call_preceded;
+        rec(37,'C',"Call tracing / call stack", (deep && shallow && rets_ok) ? V::PASS : V::FAIL,
+            "frame-pointer (rbp-chain) unwinder recovers the call stack with validated return "
+            "addresses; computed from live state, so it is correct at any tick reached by time-"
+            "travel (the stack shrinks when you step back, not a stale forward-only shadow stack)");
+
+        // --- 38: return-address integrity (CFI: a real return address is call-preceded).
+        auto s2 = fresh(code);
+        s2.core().cpu().set(Reg::Rbp, 0);
+        auto rd2 = reader_of(s2);
+        s2.run();
+        auto clean = check_stack_integrity(*dis, rd2, s2.rip(), s2.read_reg(Reg::Rbp));
+        bool intact = clean.intact() && clean.frames.size() >= 3;
+        Addr victim = clean.frames.size() >= 2 ? clean.frames[1].frame_ptr : 0;
+        s2.core().memory().write(victim + 8, std::vector<u8>{0x41,0x41,0x41,0x41,0,0,0,0});
+        auto smashed = check_stack_integrity(*dis, rd2, s2.rip(), s2.read_reg(Reg::Rbp));
+        bool caught = !smashed.intact() && !smashed.violations.empty();
+        rec(38,'C',"Return-address / stack integrity", (intact && caught) ? V::PASS : V::FAIL,
+            "exact CFI over the deterministic trace: a legitimate return address is immediately "
+            "preceded by a call; a clean stack reports 0 violations, and overwriting a saved return "
+            "address (stack smashing / ROP) is flagged");
     }
     // 11 & 21: native decompiler — expression building, constant folding, pointer arithmetic.
     {
@@ -533,8 +577,6 @@ int main(int argc, char** argv) {
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");
-    rec(37,'C',"Call tracing / call stack", V::PARTIAL, "call events traced; heuristic unwind not yet implemented");
-    rec(38,'C',"Return-address / stack integrity", V::PARTIAL, "stack visible; no automatic corruption detector yet");
     rec(44,'C',"Memory allocation tracking", V::NA, "no heap/allocator model (flat image)");
     rec(45,'C',"Multi-threaded debugging", V::NA, "single-threaded deterministic core by design");
     rec(51,'D',"Signature-based packer/protector ID", V::NA, "PE-packer signatures (VMProtect/Denuvo) out of scope for a flat engine");
