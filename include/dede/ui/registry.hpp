@@ -22,9 +22,10 @@ struct Services;  // forward (defined in services.hpp)
 
 // A panel/view: drawn immediate-mode into a rect every frame.
 struct View {
-    std::string type;       // stable id, e.g. "disassembly"
-    std::string title;      // tab label
-    Color accent = 0;       // tab dot colour (0 = theme default)
+    std::string type;         // stable id, e.g. "disassembly"
+    std::string title;        // tab label
+    Color accent = 0;         // tab dot / title accent (0 = theme default)
+    std::string region = "main";  // "main" (center+tab strip) | "drawer" (quake)
     std::function<void(IPainter&, Services&, Rect)> draw;
 };
 
@@ -97,6 +98,7 @@ public:
 
     const View* view(const std::string& type) const;
     const std::vector<View>& views() const { return views_; }
+    std::vector<const View*> views_in(const std::string& region) const;
 
     std::vector<const ToolbarItem*> toolbar(const std::string& segment, const Context&) const;
     const std::vector<StatusItem>& status() const { return status_; }

@@ -49,7 +49,7 @@ TEST("registry records contributions from a manifest") {
     Manifest m;
     m.id = "test";
     m.commands.push_back({"test.hello", "Say Hello", "Test", "", "", nullptr});
-    m.views.push_back({"test.view", "Test View", 0, nullptr});
+    m.views.push_back({"test.view", "Test View", 0, "main", nullptr});
     m.toolbar.push_back({"test.hello", "exec", ">", "", "", 5});
     m.keybindings.push_back({"F1", "test.hello", ""});
     m.schemas.push_back({"insn", "Instruction", 10,

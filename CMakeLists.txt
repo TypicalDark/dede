@@ -109,7 +109,16 @@ dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script d
 # painter backends (SVG for headless render/tests, ImGui for the desktop GUI).
 dede_library(dede_ui
   SRCS src/ui/context.cpp src/ui/registry.cpp src/ui/commands.cpp
+       src/ui/shell.cpp src/ui/backends/svg_painter.cpp
   DEPS dede_common)
+
+# Feature modules (need the engine): each registers a Manifest into the Registry.
+dede_library(dede_ui_modules
+  SRCS src/ui/modules/modules.cpp src/ui/modules/exec.cpp src/ui/modules/disasm.cpp
+       src/ui/modules/cfg.cpp src/ui/modules/decompiler.cpp src/ui/modules/timeline.cpp
+       src/ui/modules/console.cpp src/ui/modules/inspector.cpp
+  DEPS dede_ui dede_session dede_analysis)
+target_include_directories(dede_ui_modules PRIVATE ${CMAKE_SOURCE_DIR})
 
 # --- Vulkan + Dear ImGui GUI (optional) --------------------------------------
 option(DEDE_WITH_GUI "Build the Vulkan/ImGui desktop GUI (needs libvulkan-dev, libglfw3-dev, and third_party/imgui)" OFF)
@@ -158,7 +167,7 @@ target_link_libraries(dede-forge PRIVATE dede_samples)
 # Renders the GUI workspace to SVG from live engine data (the GUI itself needs a
 # display/GPU; this gives headless, honest "screenshots").
 add_executable(dede-shot apps/shot.cpp)
-target_link_libraries(dede-shot PRIVATE dede_session dede_analysis dede_samples)
+target_link_libraries(dede-shot PRIVATE dede_ui dede_ui_modules dede_session dede_analysis dede_samples)
 
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)

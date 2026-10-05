@@ -43,6 +43,12 @@ const View* Registry::view(const std::string& type) const {
     return nullptr;
 }
 
+std::vector<const View*> Registry::views_in(const std::string& region) const {
+    std::vector<const View*> out;
+    for (auto& v : views_) if (v.region == region) out.push_back(&v);
+    return out;
+}
+
 std::vector<const ToolbarItem*> Registry::toolbar(const std::string& segment, const Context& ctx) const {
     std::vector<const ToolbarItem*> out;
     for (auto& t : toolbar_)

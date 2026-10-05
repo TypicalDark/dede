@@ -1,0 +1,149 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1366' height='768' viewBox='0 0 1366 768' font-family='ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'>
+<rect x='0' y='0' width='1366' height='768' rx='0' fill='#0a0e14'/>
+<rect x='0' y='0' width='1366' height='768' rx='0' fill='#0a0e14'/>
+<rect x='0' y='0' width='1366' height='34' rx='0' fill='#0a0e14'/>
+<line x1='0' y1='34' x2='1366' y2='34' stroke='#1f2b42' stroke-width='1'/>
+<text x='14' y='22' fill='#00e5ff' font-size='15' text-anchor='start'>⎇</text>
+<text x='32' y='22' fill='#d9e2ee' font-size='14' text-anchor='start'>dede</text>
+<rect x='76' y='8' width='119.995' height='18' rx='9' fill='#0a0e14'/>
+<rect x='76' y='8' width='119.995' height='18' rx='9' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<circle cx='89' cy='17' r='3' fill='#00e5ff'/>
+<text x='98' y='20.5' fill='#00e5ff' font-size='10.5' text-anchor='start'>paused  0x1000</text>
+<rect x='209.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='209.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='220.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>«</text>
+<rect x='235.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='235.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='246.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>‹</text>
+<rect x='269.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='269.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='280.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>›</text>
+<rect x='295.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='295.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='306.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>▶</text>
+<rect x='321.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='321.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='332.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>⟲</text>
+<rect x='355.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='355.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='366.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>✦</text>
+<rect x='1282' y='7' width='70' height='20' rx='10' fill='#39ff14' fill-opacity="0.141"/>
+<rect x='1282' y='7' width='70' height='20' rx='10' fill='none' stroke='#39ff14' stroke-width='1'/>
+<text x='1317' y='20.74' fill='#39ff14' font-size='11' text-anchor='middle'>OPEN</text>
+<rect x='952' y='7' width='318' height='20' rx='6' fill='#090c12'/>
+<rect x='952' y='7' width='318' height='20' rx='6' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='962' y='21' fill='#586274' font-size='11' text-anchor='start'>⌕  commands, addresses, symbols</text>
+<text x='1242' y='21' fill='#586274' font-size='10' text-anchor='start'>⌘K</text>
+<rect x='0' y='34' width='1366' height='32' rx='0' fill='#0a0e14'/>
+<line x1='0' y1='66' x2='1366' y2='66' stroke='#1f2b42' stroke-width='1'/>
+<circle cx='16' cy='50' r='4' fill='#ff5555'/>
+<circle cx='30' cy='50' r='4' fill='#39ff14'/>
+<circle cx='58' cy='50' r='3.5' fill='#586274'/>
+<text x='68' y='54' fill='#8296b0' font-size='11.5' text-anchor='start'>Disassembly</text>
+<circle cx='168.003' cy='50' r='3.5' fill='#586274'/>
+<text x='178.003' y='54' fill='#8296b0' font-size='11.5' text-anchor='start'>Control-Flow Graph</text>
+<rect x='315.098' y='40' width='97.275' height='20' rx='6' fill='#182136'/>
+<rect x='315.098' y='40' width='97.275' height='20' rx='6' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<circle cx='325.098' cy='50' r='3.5' fill='#00e5ff'/>
+<text x='335.098' y='54' fill='#d9e2ee' font-size='11.5' text-anchor='start'>Decompiler</text>
+<rect x='418.372' y='41' width='20' height='18' rx='5' fill='#182136'/>
+<rect x='418.372' y='41' width='20' height='18' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='428.372' y='54' fill='#8296b0' font-size='12' text-anchor='middle'>+</text>
+<circle cx='1280' cy='50' r='6' fill='#00e5ff'/>
+<circle cx='1300' cy='50' r='6' fill='none' stroke='#ff9d3c' stroke-width='1.5'/>
+<circle cx='1320' cy='50' r='6' fill='none' stroke='#39ff14' stroke-width='1.5'/>
+<rect x='0' y='66' width='248' height='676' rx='0' fill='#121826'/>
+<line x1='248' y1='66' x2='248' y2='742' stroke='#1f2b42' stroke-width='1'/>
+<clipPath id='c1'><rect x='0' y='66' width='248' height='676'/></clipPath>
+<g clip-path='url(#c1)'>
+<text x='14' y='86' fill='#8296b0' font-size='11' text-anchor='start'>⎇ timeline @ tick 0</text>
+<line x1='8' y1='124' x2='240' y2='124' stroke='#1f2b42' stroke-width='1'/>
+<text x='14' y='136' fill='#586274' font-size='9.5' text-anchor='start'>▾ BOOKMARKS / RUN POINTS</text>
+<text x='234' y='136' fill='#586274' font-size='9.5' text-anchor='end'>0</text>
+<line x1='0' y1='714' x2='248' y2='714' stroke='#1f2b42' stroke-width='1'/>
+<text x='10' y='732' fill='#00e5ff' font-size='11' text-anchor='start'>+ new tab</text>
+</g>
+<rect x='258' y='76' width='752' height='446' rx='8' fill='#121826'/>
+<rect x='258' y='76' width='752' height='446' rx='8' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<rect x='258' y='76' width='752' height='26' rx='8' fill='#182136'/>
+<rect x='258' y='89' width='752' height='13' rx='0' fill='#182136'/>
+<line x1='258' y1='76' x2='1010' y2='76' stroke='#00e5ff' stroke-width='2'/>
+<text x='270' y='93' fill='#00e5ff' font-size='11.5' text-anchor='start'>■ Decompiler</text>
+<text x='994' y='93' fill='#586274' font-size='11' text-anchor='middle'>×</text>
+<text x='974' y='93' fill='#586274' font-size='11' text-anchor='middle'>—</text>
+<text x='954' y='93' fill='#586274' font-size='11' text-anchor='middle'>□</text>
+<text x='934' y='93' fill='#586274' font-size='11' text-anchor='middle'>◐</text>
+<text x='914' y='93' fill='#586274' font-size='11' text-anchor='middle'>⛶</text>
+<clipPath id='c2'><rect x='258' y='102' width='752' height='420'/></clipPath>
+<g clip-path='url(#c2)'>
+<text x='270' y='118' fill='#586274' font-size='11' text-anchor='start'>pseudocode of 0x1000</text>
+<text x='272' y='138' fill='#586274' font-size='11' text-anchor='start'>// linear reconstruction of 78 instructions at 0x1000</text>
+<text x='272' y='153' fill='#ffd24a' font-size='11' text-anchor='start'>void sub_1000() {</text>
+<text x='272' y='168' fill='#586274' font-size='11' text-anchor='start'>    rax = 0x15;    // mov rax, 0x15</text>
+<text x='272' y='183' fill='#586274' font-size='11' text-anchor='start'>    loc_1010();    // call 0x1010</text>
+<text x='272' y='198' fill='#586274' font-size='11' text-anchor='start'>    hlt;    // hlt</text>
+<text x='272' y='213' fill='#586274' font-size='11' text-anchor='start'>    nop;    // nop</text>
+<text x='272' y='228' fill='#586274' font-size='11' text-anchor='start'>    nop;    // nop</text>
+<text x='272' y='243' fill='#586274' font-size='11' text-anchor='start'>    nop;    // nop</text>
+<text x='272' y='258' fill='#d9e2ee' font-size='11' text-anchor='start'></text>
+<text x='272' y='273' fill='#d9e2ee' font-size='11' text-anchor='start'>loc_1010:</text>
+<text x='272' y='288' fill='#586274' font-size='11' text-anchor='start'>    rax &lt;&lt;= 0x1;    // shl rax, 1</text>
+<text x='272' y='303' fill='#586274' font-size='11' text-anchor='start'>    return;    // ret</text>
+<text x='272' y='318' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='333' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='348' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='363' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='378' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='393' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='408' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='423' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='438' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='453' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='468' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='483' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='498' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+<text x='272' y='513' fill='#586274' font-size='11' text-anchor='start'>    mem += rax;    // add byte ptr [rax], al</text>
+</g>
+<rect x='248' y='532' width='772' height='210' rx='0' fill='#0a0e14'/>
+<line x1='248' y1='532' x2='1020' y2='532' stroke='#1f2b42' stroke-width='1'/>
+<rect x='256' y='537' width='65.045' height='18' rx='5' fill='#182136'/>
+<rect x='256' y='537' width='65.045' height='18' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='262' y='550' fill='#d9e2ee' font-size='11' text-anchor='start'>Console</text>
+<text x='337.045' y='550' fill='#8296b0' font-size='11' text-anchor='start'>Trace</text>
+<text x='399.22' y='550' fill='#8296b0' font-size='11' text-anchor='start'>Registers</text>
+<text x='487.135' y='550' fill='#8296b0' font-size='11' text-anchor='start'>Memory map</text>
+<text x='1006' y='550' fill='#586274' font-size='10' text-anchor='end'>esc drawer  `  quake</text>
+<clipPath id='c3'><rect x='248' y='560' width='772' height='182'/></clipPath>
+<g clip-path='url(#c3)'>
+<text x='262' y='576' fill='#00e5ff' font-size='10.5' text-anchor='start'>dede&gt; info</text>
+<text x='262' y='591' fill='#8296b0' font-size='10.5' text-anchor='start'>format: flat   rip: 0x1000   backend: builtin-x86-64</text>
+<text x='262' y='606' fill='#8296b0' font-size='10.5' text-anchor='start'>tick 0/0   snapshots 1   injected 0</text>
+<text x='262' y='621' fill='#00e5ff' font-size='10.5' text-anchor='start'>dede&gt; _</text>
+<rect x='258' y='718' width='752' height='16' rx='4' fill='#090c12'/>
+<rect x='258' y='718' width='752' height='16' rx='4' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='264' y='730' fill='#586274' font-size='10' text-anchor='start'>&gt; type a command, help lists them, Tab completes</text>
+</g>
+<rect x='1020' y='66' width='346' height='676' rx='0' fill='#121826'/>
+<line x1='1020' y1='66' x2='1020' y2='742' stroke='#1f2b42' stroke-width='1'/>
+<text x='1036' y='86' fill='#d9e2ee' font-size='11.5' text-anchor='start'>PROPERTIES</text>
+<text x='1350' y='86' fill='#586274' font-size='9.5' text-anchor='end'>follows selection</text>
+<rect x='1030' y='96' width='46.7125' height='18' rx='5' fill='#182136'/>
+<rect x='1030' y='96' width='46.7125' height='18' rx='5' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<text x='1036' y='109' fill='#d9e2ee' font-size='10.5' text-anchor='start'>props</text>
+<text x='1092.71' y='109' fill='#8296b0' font-size='10.5' text-anchor='start'>actions</text>
+<text x='1161.71' y='109' fill='#8296b0' font-size='10.5' text-anchor='start'>flow</text>
+<text x='1212.28' y='109' fill='#8296b0' font-size='10.5' text-anchor='start'>ops</text>
+<clipPath id='c4'><rect x='1020' y='120' width='346' height='622'/></clipPath>
+<g clip-path='url(#c4)'>
+<text x='1036' y='144' fill='#8296b0' font-size='11' text-anchor='start'>no selection</text>
+</g>
+<rect x='0' y='742' width='1366' height='26' rx='0' fill='#0a0e14'/>
+<line x1='0' y1='742' x2='1366' y2='742' stroke='#1f2b42' stroke-width='1'/>
+<text x='12' y='759' fill='#39ff14' font-size='10.5' text-anchor='start'>● builtin-x86-64</text>
+<text x='138.565' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>paused rip=0x1000</text>
+<text x='258.987' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>tick 0/0</text>
+<text x='324.128' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>snap 1</text>
+<text x='376.983' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>transparent: off</text>
+<text x='491.263' y='759' fill='#00e5ff' font-size='10.5' text-anchor='start'>● cyan</text>
+<text x='1352' y='759' fill='#586274' font-size='10' text-anchor='end'>step F7 · back ⇧F7 · palette ⌘K · console `</text>
+</svg>

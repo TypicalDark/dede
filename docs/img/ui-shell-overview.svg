@@ -1,0 +1,228 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='1366' height='768' viewBox='0 0 1366 768' font-family='ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'>
+<rect x='0' y='0' width='1366' height='768' rx='0' fill='#0a0e14'/>
+<rect x='0' y='0' width='1366' height='768' rx='0' fill='#0a0e14'/>
+<rect x='0' y='0' width='1366' height='34' rx='0' fill='#0a0e14'/>
+<line x1='0' y1='34' x2='1366' y2='34' stroke='#1f2b42' stroke-width='1'/>
+<text x='14' y='22' fill='#00e5ff' font-size='15' text-anchor='start'>⎇</text>
+<text x='32' y='22' fill='#d9e2ee' font-size='14' text-anchor='start'>dede</text>
+<rect x='76' y='8' width='119.995' height='18' rx='9' fill='#0a0e14'/>
+<rect x='76' y='8' width='119.995' height='18' rx='9' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<circle cx='89' cy='17' r='3' fill='#00e5ff'/>
+<text x='98' y='20.5' fill='#00e5ff' font-size='10.5' text-anchor='start'>paused  0x100e</text>
+<rect x='209.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='209.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='220.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>«</text>
+<rect x='235.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='235.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='246.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>‹</text>
+<rect x='269.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='269.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='280.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>›</text>
+<rect x='295.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='295.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='306.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>▶</text>
+<rect x='321.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='321.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='332.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>⟲</text>
+<rect x='355.995' y='7' width='22' height='20' rx='5' fill='#182136'/>
+<rect x='355.995' y='7' width='22' height='20' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='366.995' y='21' fill='#8296b0' font-size='12' text-anchor='middle'>✦</text>
+<rect x='1282' y='7' width='70' height='20' rx='10' fill='#39ff14' fill-opacity="0.141"/>
+<rect x='1282' y='7' width='70' height='20' rx='10' fill='none' stroke='#39ff14' stroke-width='1'/>
+<text x='1317' y='20.74' fill='#39ff14' font-size='11' text-anchor='middle'>OPEN</text>
+<rect x='952' y='7' width='318' height='20' rx='6' fill='#090c12'/>
+<rect x='952' y='7' width='318' height='20' rx='6' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='962' y='21' fill='#586274' font-size='11' text-anchor='start'>⌕  commands, addresses, symbols</text>
+<text x='1242' y='21' fill='#586274' font-size='10' text-anchor='start'>⌘K</text>
+<rect x='0' y='34' width='1366' height='32' rx='0' fill='#0a0e14'/>
+<line x1='0' y1='66' x2='1366' y2='66' stroke='#1f2b42' stroke-width='1'/>
+<circle cx='16' cy='50' r='4' fill='#ff5555'/>
+<circle cx='30' cy='50' r='4' fill='#39ff14'/>
+<rect x='48' y='40' width='104.002' height='20' rx='6' fill='#182136'/>
+<rect x='48' y='40' width='104.002' height='20' rx='6' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<circle cx='58' cy='50' r='3.5' fill='#00e5ff'/>
+<text x='68' y='54' fill='#d9e2ee' font-size='11.5' text-anchor='start'>Disassembly</text>
+<circle cx='168.003' cy='50' r='3.5' fill='#586274'/>
+<text x='178.003' y='54' fill='#8296b0' font-size='11.5' text-anchor='start'>Control-Flow Graph</text>
+<circle cx='325.098' cy='50' r='3.5' fill='#586274'/>
+<text x='335.098' y='54' fill='#8296b0' font-size='11.5' text-anchor='start'>Decompiler</text>
+<rect x='418.372' y='41' width='20' height='18' rx='5' fill='#182136'/>
+<rect x='418.372' y='41' width='20' height='18' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='428.372' y='54' fill='#8296b0' font-size='12' text-anchor='middle'>+</text>
+<circle cx='1280' cy='50' r='6' fill='#00e5ff'/>
+<circle cx='1300' cy='50' r='6' fill='none' stroke='#ff9d3c' stroke-width='1.5'/>
+<circle cx='1320' cy='50' r='6' fill='none' stroke='#39ff14' stroke-width='1.5'/>
+<rect x='0' y='66' width='248' height='676' rx='0' fill='#121826'/>
+<line x1='248' y1='66' x2='248' y2='742' stroke='#1f2b42' stroke-width='1'/>
+<clipPath id='c1'><rect x='0' y='66' width='248' height='676'/></clipPath>
+<g clip-path='url(#c1)'>
+<text x='14' y='86' fill='#8296b0' font-size='11' text-anchor='start'>⎇ timeline @ tick 5</text>
+<line x1='22' y1='104' x2='22' y2='228' stroke='#7c5cff' stroke-width='2'/>
+<rect x='8' y='98' width='232' height='24' rx='5' fill='#182136'/>
+<rect x='8' y='98' width='232' height='24' rx='5' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<circle cx='22' cy='110' r='4.5' fill='#7c5cff'/>
+<circle cx='22' cy='110' r='4.5' fill='none' stroke='#7c5cff' stroke-width='2'/>
+<text x='36' y='114' fill='#586274' font-size='10' text-anchor='start'>5</text>
+<text x='70' y='114' fill='#d9e2ee' font-size='10' text-anchor='start'>step 0x1014</text>
+<rect x='202.94' y='102' width='33.06' height='15' rx='7.5' fill='#39ff14' fill-opacity="0.118"/>
+<text x='219.47' y='112.56' fill='#39ff14' font-size='9' text-anchor='middle'>HEAD</text>
+<circle cx='22' cy='138' r='4.5' fill='#121826'/>
+<circle cx='22' cy='138' r='4.5' fill='none' stroke='#7c5cff' stroke-width='2'/>
+<text x='36' y='142' fill='#586274' font-size='10' text-anchor='start'>4</text>
+<text x='70' y='142' fill='#8296b0' font-size='10' text-anchor='start'>step 0x1011</text>
+<circle cx='22' cy='166' r='4.5' fill='#121826'/>
+<circle cx='22' cy='166' r='4.5' fill='none' stroke='#7c5cff' stroke-width='2'/>
+<text x='36' y='170' fill='#586274' font-size='10' text-anchor='start'>3</text>
+<text x='70' y='170' fill='#8296b0' font-size='10' text-anchor='start'>step 0x100e</text>
+<circle cx='22' cy='194' r='4.5' fill='#121826'/>
+<circle cx='22' cy='194' r='4.5' fill='none' stroke='#7c5cff' stroke-width='2'/>
+<text x='36' y='198' fill='#586274' font-size='10' text-anchor='start'>2</text>
+<text x='70' y='198' fill='#8296b0' font-size='10' text-anchor='start'>step 0x1007</text>
+<circle cx='22' cy='222' r='4.5' fill='#121826'/>
+<circle cx='22' cy='222' r='4.5' fill='none' stroke='#7c5cff' stroke-width='2'/>
+<text x='36' y='226' fill='#586274' font-size='10' text-anchor='start'>1</text>
+<text x='70' y='226' fill='#8296b0' font-size='10' text-anchor='start'>step 0x1000</text>
+<line x1='8' y1='264' x2='240' y2='264' stroke='#1f2b42' stroke-width='1'/>
+<text x='14' y='276' fill='#586274' font-size='9.5' text-anchor='start'>▾ BOOKMARKS / RUN POINTS</text>
+<text x='234' y='276' fill='#586274' font-size='9.5' text-anchor='end'>0</text>
+<line x1='0' y1='714' x2='248' y2='714' stroke='#1f2b42' stroke-width='1'/>
+<text x='10' y='732' fill='#00e5ff' font-size='11' text-anchor='start'>+ new tab</text>
+</g>
+<rect x='258' y='76' width='752' height='446' rx='8' fill='#121826'/>
+<rect x='258' y='76' width='752' height='446' rx='8' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<rect x='258' y='76' width='752' height='26' rx='8' fill='#182136'/>
+<rect x='258' y='89' width='752' height='13' rx='0' fill='#182136'/>
+<line x1='258' y1='76' x2='1010' y2='76' stroke='#00e5ff' stroke-width='2'/>
+<text x='270' y='93' fill='#00e5ff' font-size='11.5' text-anchor='start'>■ Disassembly</text>
+<text x='994' y='93' fill='#586274' font-size='11' text-anchor='middle'>×</text>
+<text x='974' y='93' fill='#586274' font-size='11' text-anchor='middle'>—</text>
+<text x='954' y='93' fill='#586274' font-size='11' text-anchor='middle'>□</text>
+<text x='934' y='93' fill='#586274' font-size='11' text-anchor='middle'>◐</text>
+<text x='914' y='93' fill='#586274' font-size='11' text-anchor='middle'>⛶</text>
+<clipPath id='c2'><rect x='258' y='102' width='752' height='420'/></clipPath>
+<g clip-path='url(#c2)'>
+<rect x='258' y='102' width='752' height='24' rx='0' fill='#182136'/>
+<text x='270' y='118' fill='#586274' font-size='11' text-anchor='start'>follow rip  ✓    goto 0x100e</text>
+<line x1='258' y1='126' x2='1010' y2='126' stroke='#1f2b42' stroke-width='1'/>
+<rect x='262' y='130' width='744' height='17' rx='3' fill='#00e5ff' fill-opacity="0.102"/>
+<rect x='262' y='130' width='744' height='17' rx='3' fill='none' stroke='#00e5ff' stroke-width='1'/>
+<circle cx='274' cy='139' r='3.5' fill='#182136'/>
+<circle cx='274' cy='139' r='3.5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='286' y='142' fill='#39ff14' font-size='10' text-anchor='start'>▶</text>
+<text x='304' y='142' fill='#4aa3ff' font-size='11' text-anchor='start'>0000100e</text>
+<text x='368' y='142' fill='#586274' font-size='10' text-anchor='start'>48 01 c8 </text>
+<text x='486' y='142' fill='#ffd24a' font-size='11' text-anchor='start'>add</text>
+<text x='511.305' y='142' fill='#d9e2ee' font-size='11' text-anchor='start'>rax, rcx</text>
+<circle cx='274' cy='156' r='3.5' fill='#182136'/>
+<circle cx='274' cy='156' r='3.5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='286' y='159' fill='#39ff14' font-size='10' text-anchor='start'> </text>
+<text x='304' y='159' fill='#4aa3ff' font-size='11' text-anchor='start'>00001011</text>
+<text x='368' y='159' fill='#586274' font-size='10' text-anchor='start'>48 ff c9 </text>
+<text x='486' y='159' fill='#ffd24a' font-size='11' text-anchor='start'>dec</text>
+<text x='511.305' y='159' fill='#d9e2ee' font-size='11' text-anchor='start'>rcx</text>
+<circle cx='274' cy='173' r='3.5' fill='#182136'/>
+<circle cx='274' cy='173' r='3.5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='286' y='176' fill='#39ff14' font-size='10' text-anchor='start'> </text>
+<text x='304' y='176' fill='#4aa3ff' font-size='11' text-anchor='start'>00001014</text>
+<text x='368' y='176' fill='#586274' font-size='10' text-anchor='start'>75 f8 </text>
+<text x='486' y='176' fill='#ffd24a' font-size='11' text-anchor='start'>jne</text>
+<text x='511.305' y='176' fill='#d9e2ee' font-size='11' text-anchor='start'>0x100e</text>
+<circle cx='274' cy='190' r='3.5' fill='#182136'/>
+<circle cx='274' cy='190' r='3.5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='286' y='193' fill='#39ff14' font-size='10' text-anchor='start'> </text>
+<text x='304' y='193' fill='#4aa3ff' font-size='11' text-anchor='start'>00001016</text>
+<text x='368' y='193' fill='#586274' font-size='10' text-anchor='start'>f4 </text>
+<text x='486' y='193' fill='#ffd24a' font-size='11' text-anchor='start'>hlt</text>
+<text x='511.305' y='193' fill='#d9e2ee' font-size='11' text-anchor='start'></text>
+<circle cx='274' cy='207' r='3.5' fill='#182136'/>
+<circle cx='274' cy='207' r='3.5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='286' y='210' fill='#39ff14' font-size='10' text-anchor='start'> </text>
+<text x='304' y='210' fill='#4aa3ff' font-size='11' text-anchor='start'>00001017</text>
+<text x='368' y='210' fill='#586274' font-size='10' text-anchor='start'>00 00 </text>
+<text x='486' y='210' fill='#ffd24a' font-size='11' text-anchor='start'>add</text>
+<text x='511.305' y='210' fill='#d9e2ee' font-size='11' text-anchor='start'>byte ptr [rax], al</text>
+<circle cx='274' cy='224' r='3.5' fill='#182136'/>
+<circle cx='274' cy='224' r='3.5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='286' y='227' fill='#39ff14' font-size='10' text-anchor='start'> </text>
+<text x='304' y='227' fill='#4aa3ff' font-size='11' text-anchor='start'>00001019</text>
+<text x='368' y='227' fill='#586274' font-size='10' text-anchor='start'>00 00 </text>
+<text x='486' y='227' fill='#ffd24a' font-size='11' text-anchor='start'>add</text>
+<text x='511.305' y='227' fill='#d9e2ee' font-size='11' text-anchor='start'>byte ptr [rax], al</text>
+<text x='306' y='244' fill='#586274' font-size='11' text-anchor='start'>; … (padding)</text>
+</g>
+<rect x='248' y='532' width='772' height='210' rx='0' fill='#0a0e14'/>
+<line x1='248' y1='532' x2='1020' y2='532' stroke='#1f2b42' stroke-width='1'/>
+<rect x='256' y='537' width='65.045' height='18' rx='5' fill='#182136'/>
+<rect x='256' y='537' width='65.045' height='18' rx='5' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='262' y='550' fill='#d9e2ee' font-size='11' text-anchor='start'>Console</text>
+<text x='337.045' y='550' fill='#8296b0' font-size='11' text-anchor='start'>Trace</text>
+<text x='399.22' y='550' fill='#8296b0' font-size='11' text-anchor='start'>Registers</text>
+<text x='487.135' y='550' fill='#8296b0' font-size='11' text-anchor='start'>Memory map</text>
+<text x='1006' y='550' fill='#586274' font-size='10' text-anchor='end'>esc drawer  `  quake</text>
+<clipPath id='c3'><rect x='248' y='560' width='772' height='182'/></clipPath>
+<g clip-path='url(#c3)'>
+<text x='262' y='576' fill='#00e5ff' font-size='10.5' text-anchor='start'>dede&gt; info</text>
+<text x='262' y='591' fill='#8296b0' font-size='10.5' text-anchor='start'>format: flat   rip: 0x100e   backend: builtin-x86-64</text>
+<text x='262' y='606' fill='#8296b0' font-size='10.5' text-anchor='start'>tick 5/5   snapshots 1   injected 0</text>
+<text x='262' y='621' fill='#00e5ff' font-size='10.5' text-anchor='start'>dede&gt; _</text>
+<rect x='258' y='718' width='752' height='16' rx='4' fill='#090c12'/>
+<rect x='258' y='718' width='752' height='16' rx='4' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='264' y='730' fill='#586274' font-size='10' text-anchor='start'>&gt; type a command, help lists them, Tab completes</text>
+</g>
+<rect x='1020' y='66' width='346' height='676' rx='0' fill='#121826'/>
+<line x1='1020' y1='66' x2='1020' y2='742' stroke='#1f2b42' stroke-width='1'/>
+<text x='1036' y='86' fill='#d9e2ee' font-size='11.5' text-anchor='start'>PROPERTIES</text>
+<text x='1350' y='86' fill='#586274' font-size='9.5' text-anchor='end'>follows selection</text>
+<rect x='1030' y='96' width='46.7125' height='18' rx='5' fill='#182136'/>
+<rect x='1030' y='96' width='46.7125' height='18' rx='5' fill='none' stroke='#0a6b78' stroke-width='1'/>
+<text x='1036' y='109' fill='#d9e2ee' font-size='10.5' text-anchor='start'>props</text>
+<text x='1092.71' y='109' fill='#8296b0' font-size='10.5' text-anchor='start'>actions</text>
+<text x='1161.71' y='109' fill='#8296b0' font-size='10.5' text-anchor='start'>flow</text>
+<text x='1212.28' y='109' fill='#8296b0' font-size='10.5' text-anchor='start'>ops</text>
+<clipPath id='c4'><rect x='1020' y='120' width='346' height='622'/></clipPath>
+<g clip-path='url(#c4)'>
+<rect x='1034' y='128' width='318' height='52' rx='6' fill='#182136'/>
+<rect x='1034' y='128' width='318' height='52' rx='6' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='1046' y='146' fill='#39ff14' font-size='11' text-anchor='start'>insn  0x100e</text>
+<text x='1340' y='146' fill='#8296b0' font-size='10' text-anchor='end'>48 01 c8 </text>
+<text x='1046' y='166' fill='#d9e2ee' font-size='10.5' text-anchor='start'>add rax, rcx</text>
+<text x='1036' y='202' fill='#586274' font-size='9.5' text-anchor='start'>mnemonic</text>
+<rect x='1034' y='208' width='316' height='20' rx='4' fill='#090c12'/>
+<rect x='1034' y='208' width='316' height='20' rx='4' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='1044' y='222' fill='#d9e2ee' font-size='10.5' text-anchor='start'>add</text>
+<text x='1036' y='242' fill='#586274' font-size='9.5' text-anchor='start'>operands</text>
+<rect x='1034' y='248' width='316' height='20' rx='4' fill='#090c12'/>
+<rect x='1034' y='248' width='316' height='20' rx='4' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='1044' y='262' fill='#d9e2ee' font-size='10.5' text-anchor='start'>rax, rcx</text>
+<text x='1036' y='282' fill='#586274' font-size='9.5' text-anchor='start'>symbol / function</text>
+<rect x='1034' y='288' width='316' height='20' rx='4' fill='#090c12'/>
+<rect x='1034' y='288' width='316' height='20' rx='4' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='1044' y='302' fill='#d9e2ee' font-size='10.5' text-anchor='start'>sub_100e</text>
+<text x='1036' y='322' fill='#586274' font-size='9.5' text-anchor='start'>control flow</text>
+<rect x='1034' y='328' width='316' height='20' rx='4' fill='#090c12'/>
+<rect x='1034' y='328' width='316' height='20' rx='4' fill='none' stroke='#1f2b42' stroke-width='1'/>
+<text x='1044' y='342' fill='#d9e2ee' font-size='10.5' text-anchor='start'>sequential</text>
+<text x='1036' y='366' fill='#d9e2ee' font-size='10' text-anchor='start'>ACTIONS</text>
+<rect x='1034' y='372' width='156' height='22' rx='5' fill='#182136'/>
+<rect x='1034' y='372' width='156' height='22' rx='5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='1044' y='387' fill='#d9e2ee' font-size='10' text-anchor='start'>✂ Set BP</text>
+<rect x='1194' y='372' width='156' height='22' rx='5' fill='#182136'/>
+<rect x='1194' y='372' width='156' height='22' rx='5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='1204' y='387' fill='#d9e2ee' font-size='10' text-anchor='start'>→ Run to here</text>
+<rect x='1034' y='398' width='156' height='22' rx='5' fill='#182136'/>
+<rect x='1034' y='398' width='156' height='22' rx='5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='1044' y='413' fill='#d9e2ee' font-size='10' text-anchor='start'>⌘ Decompile</text>
+<rect x='1194' y='398' width='156' height='22' rx='5' fill='#182136'/>
+<rect x='1194' y='398' width='156' height='22' rx='5' fill='none' stroke='#2a3a58' stroke-width='1'/>
+<text x='1204' y='413' fill='#d9e2ee' font-size='10' text-anchor='start'>◳ View CFG</text>
+</g>
+<rect x='0' y='742' width='1366' height='26' rx='0' fill='#0a0e14'/>
+<line x1='0' y1='742' x2='1366' y2='742' stroke='#1f2b42' stroke-width='1'/>
+<text x='12' y='759' fill='#39ff14' font-size='10.5' text-anchor='start'>● builtin-x86-64</text>
+<text x='138.565' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>paused rip=0x100e</text>
+<text x='258.987' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>tick 5/5</text>
+<text x='324.128' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>snap 1</text>
+<text x='376.983' y='759' fill='#8296b0' font-size='10.5' text-anchor='start'>transparent: off</text>
+<text x='491.263' y='759' fill='#00e5ff' font-size='10.5' text-anchor='start'>● cyan</text>
+<text x='1352' y='759' fill='#586274' font-size='10' text-anchor='end'>step F7 · back ⇧F7 · palette ⌘K · console `</text>
+</svg>
