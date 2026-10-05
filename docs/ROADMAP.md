@@ -224,11 +224,72 @@ Build the AnalysisDB, then populate it.
   + SEH chain. _Done:_ a 32-bit sample runs and unwinds its SEH chain. _(Large; nearest the
   out-of-scope line — gated behind explicit demand.)_
 
+### Batch 9 — OS user-mode environment / emulation sandbox *(large · the behavioral-analysis milestone)*
+Execute **Windows and Linux** user-mode binaries (notably malware) by modeling the OS API/
+syscall surface — the Qiling/Speakeasy/Unicorn-sandbox approach, built on dede's existing
+**capture/MITM** (API hooking + syscall interception), **transparency** (structure forging),
+**loader** (imports/symbols), and **Batch 3** allocation tracker. dede's edge over a live
+sandbox: it stays **deterministic + time-travel + record/replay**, so you can run malware,
+watch it unpack/stage, step *backward* to see how, and replay bit-for-bit while feeding fake
+inputs via MITM. This makes generic **user-mode** Windows/Linux analysis in-charter (distinct
+from the ring-0/DRM legacy theme, which stays out).
+
+**Shared foundation**
+- **T9.1 Segment bases (`fs`/`gs`) in the interpreter** — needed by both OSes (Win PEB/TEB,
+  Linux TLS + stack canary). Shared with Batch 8. _Done:_ `fs`/`gs`-relative loads/stores
+  resolve against a settable base; `arch_prctl(ARCH_SET_FS)` and a forged TEB both read back.
+- **T9.2 Loaded-module + import-binding model** — a synthetic module address space so imports
+  (PE IAT / ELF PLT-GOT) bind to shim handlers; `GetProcAddress`/`dlsym`-style resolution.
+  _Done:_ a sample's import thunks dispatch to registered handlers, not into unmapped memory.
+- **T9.3 Pluggable OS-environment dispatcher (Strategy)** — an `IOsEnvironment` that handles an
+  intercepted API/syscall, mutates regs/memory, returns a result, and emits a time-travel-
+  visible behavioral event. Reuses the capture layer. _Done:_ one interface, two backends
+  (Win/Linux), selected by the loaded image's format.
+
+**Windows track** (PE64; PE32 via Batch 8 T8.2)
+- **T9.W1 Win32 module map** (synthetic kernel32/ntdll/user32 bases) + IAT binding.
+- **T9.W2 Forged PEB/TEB** (`BeingDebugged`, `NtGlobalFlag`, TLS) via `fs`/`gs` — extends the
+  transparency layer's forging.
+- **T9.W3 Core API shim set** — memory (`VirtualAlloc`/`VirtualProtect`/`HeapAlloc`), file
+  (`CreateFileW`/`ReadFile`/`WriteFile`), module (`LoadLibrary`/`GetProcAddress`/
+  `GetModuleHandle`), process (`GetCurrentProcess`/`GetProcAddress`), plus a few `Nt*` direct
+  syscalls — each returns a plausible result and logs the call; unknowns log + return a safe
+  default. **T9.W4 (stretch) SEH dispatch** into a registered `__except`.
+  _Done:_ a PE64 that `VirtualAlloc`s, writes a payload, and "injects" runs to its exit under
+  the shim; the Batch-3 alloc tracker shows the regions; an anti-debug `PEB.BeingDebugged`/
+  `NtGlobalFlag` check reads "not debugged"; MITM can substitute a `ReadFile`/registry/C2 value;
+  stepping back across the run restores exact state; the API call log is a replayable event
+  stream. A hand-built PE64 fixture test asserts the shimmed APIs + behavioral log.
+
+**Linux track** (ELF64; leverages the most existing infrastructure — `syscall` already
+intercepted, ELF already parsed)
+- **T9.L1 Linux syscall ABI** (`rax`=nr, `rdi/rsi/rdx/r10/r8/r9`) with a core set: `mmap`/
+  `mprotect`/`munmap`/`brk`, `openat`/`read`/`write`/`writev`/`close`, `arch_prctl`, `exit`/
+  `exit_group`, `getpid`, `nanosleep` — most routing through the existing syscall interception.
+- **T9.L2 TLS + stack canary** — `arch_prctl(ARCH_SET_FS)` sets the `fs` base; `fs:[0x28]`
+  canary readable so glibc-compiled binaries don't fault on entry.
+- **T9.L3 (dynamic ELF) minimal PLT/GOT + `ld.so` resolution** binding libc imports to shim
+  handlers; statically-linked ELF needs only the syscall set.
+  _Done:_ a statically-linked ELF that `mmap`s, writes, reads, and `exit`s runs to completion
+  under the shim; a `write(1,...)` syscall's bytes are MITM-capturable (observable "stdout");
+  the alloc tracker shows `mmap` regions; time-travel + replay work; a fixture test asserts the
+  syscall results + behavioral log; a glibc `hello`-style ELF reaches its `write`.
+
+**Shared completion / out of this batch's scope:** the behavioral trace (API/syscall log) is a
+time-travel-visible event stream and MITM can feed fake file/registry/network responses, all
+deterministically replayable. **Out of scope within Batch 9:** multithreading (single-threaded
+core), ring-0/kernel drivers, a GUI subsystem, and real external side effects (forged/MITM'd,
+never actually touching the host FS/registry/network).
+
 ### Explicitly out of scope (documented, not planned)
-Multi-architecture beyond x86-64 · live/remote attach to real processes · multi-threaded
-debugging · full Windows OS shim · collaboration server · source-only constructs (#14 macros,
-#27 lambdas, #28 macro-params) · the 45-row legacy PE/Windows/DRM theme (generic PE depth is
-covered by Batch 2; DRM-wrapper specifics stay out).
+Multi-architecture beyond x86-64 · live/remote attach to real processes · **multi-threaded
+debugging** · **ring-0 / kernel-driver execution** (the real blocker in the legacy PE/DRM
+theme) · a GUI/windowing subsystem · real host side effects (dede forges/MITMs them) ·
+collaboration server · source-only constructs (#14 macros, #27 lambdas, #28 macro-params) ·
+the vendor-specific commercial-DRM-wrapper specifics of the 45-row legacy theme. (Note: generic
+PE depth is covered by Batch 2, and generic **user-mode** Windows/Linux execution — the part of
+"analyze Windows/Linux malware" that is in charter — is now **Batch 9**; only the ring-0/DRM
+tail stays out.)
 
 ---
 
@@ -236,6 +297,10 @@ covered by Batch 2; DRM-wrapper specifics stay out).
 **Batch 1 → 2 → 3** are high-value and bounded (xrefs, PE depth, dynamic observers) and flip the
 quick N/A/PARTIAL wins. **Batch 5** (SSA data-flow) is the single biggest quality lever and
 unblocks **Batch 6** (types/signatures). **Batch 4** can land alongside 1–3. **Batch 7** (UX/
-persistence) and **Batch 8** (ISA breadth) follow. Each batch keeps FAIL=0 and raises the
-`dede-eval` applicable score; projected end state after Batches 1–6: **~72 PASS**, with the
-decompiler approaching Ghidra-grade output on frame-pointer-based x86-64 binaries.
+persistence) and **Batch 8** (ISA breadth) follow. **Batch 9** (OS user-mode sandbox) is the
+largest and most product-defining: it turns dede into a **deterministic time-travel sandbox**
+for real Windows *and* Linux user-mode malware — build it after Batch 3 (its alloc tracker) and
+T9.1/Batch 8 (`fs`/`gs`), with the Linux track first (most existing infrastructure) then
+Windows. Each batch keeps FAIL=0 and raises the `dede-eval` applicable score; projected end
+state after Batches 1–6: **~72 PASS**, with the decompiler approaching Ghidra-grade output on
+frame-pointer-based x86-64 binaries, and Batch 9 adding behavioral execution of real binaries.
