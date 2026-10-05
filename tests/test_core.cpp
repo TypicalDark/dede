@@ -113,4 +113,14 @@ TEST("divide by zero raises a Fault (#DE)") {
     CHECK(o.status == StepOutcome::Status::Fault);  // caught, not executed as garbage
 }
 
+TEST("idiv quotient overflow (INT64_MIN / -1) raises a Fault, no UB") {
+    // mov rdx,0x8000000000000000; xor rax,rax; mov rcx,-1; idiv rcx; hlt
+    // 128-bit dividend == INT128_MIN, divisor == -1 -> #DE (overflow), not UB.
+    ExecutionCore core;
+    load(core, {0x48,0xBA,0,0,0,0,0,0,0,0x80, 0x48,0x31,0xC0,
+                0x48,0xC7,0xC1,0xFF,0xFF,0xFF,0xFF, 0x48,0xF7,0xF9, 0xF4});
+    auto o = run_to_halt(core);
+    CHECK(o.status == StepOutcome::Status::Fault);
+}
+
 int main() { return dede::test::run_all(); }

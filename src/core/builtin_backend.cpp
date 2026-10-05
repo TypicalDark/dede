@@ -569,6 +569,10 @@ private:
             unsigned total = bits * 2;  // sign-extend the 2N-bit dividend to 128
             if (total < 128 && ((num >> (total - 1)) & 1)) num |= (~(__int128)0) << total;
             __int128 den = (__int128)(i64)sign_extend(dv, bytes);
+            // INT128_MIN / -1 is C++ UB (and architecturally an overflow #DE);
+            // detect it before dividing so the guard below is never skipped.
+            __int128 int128_min = (__int128)((unsigned __int128)1 << 127);
+            if (den == -1 && num == int128_min) return fault(e.sink, e.in.addr, e.tick, ovf);
             __int128 Q = num / den, R = num % den;
             __int128 qmax = ((__int128)1 << (bits - 1)) - 1, qmin = -((__int128)1 << (bits - 1));
             if (Q < qmin || Q > qmax) return fault(e.sink, e.in.addr, e.tick, ovf);
