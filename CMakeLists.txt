@@ -73,8 +73,8 @@ dede_library(dede_macro
   DEPS dede_core)
 
 dede_library(dede_decompiler
-  SRCS src/decompiler/linear_pseudocode.cpp src/decompiler/ghidra_adapter.cpp
-  DEPS dede_disasm)
+  SRCS src/decompiler/linear_pseudocode.cpp src/decompiler/ghidra_adapter.cpp src/decompiler/native.cpp
+  DEPS dede_ir)
 if(DEDE_WITH_GHIDRA)
   target_compile_definitions(dede_decompiler PUBLIC DEDE_WITH_GHIDRA)
 endif()
@@ -179,7 +179,7 @@ target_link_libraries(dede-shot PRIVATE dede_ui dede_ui_modules dede_session ded
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir test_decompiler)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)
@@ -190,5 +190,6 @@ if(DEDE_BUILD_TESTS)
   target_link_libraries(test_tiers PRIVATE dede_samples)
   target_link_libraries(test_ui PRIVATE dede_ui)
   target_link_libraries(test_ir PRIVATE dede_ir)
+  target_link_libraries(test_decompiler PRIVATE dede_samples)
   add_test(NAME effectiveness COMMAND dede-eval ${CMAKE_BINARY_DIR}/effectiveness-report.md)
 endif()

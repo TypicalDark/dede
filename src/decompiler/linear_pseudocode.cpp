@@ -151,10 +151,7 @@ private:
 
 }  // namespace
 
-#ifndef DEDE_WITH_GHIDRA
-std::unique_ptr<IDecompiler> make_decompiler(IDisassembler& disasm) {
-    return std::make_unique<LinearDecompiler>(disasm);
-}
-#endif
+// The default factory lives in native.cpp (NativeDecompiler); this file keeps
+// LinearDecompiler available as a comparison/fallback implementation.
 
 }  // namespace dede

@@ -115,6 +115,26 @@ void run_dynamic_checks() {
             "RunPointType::Fault breaks on the fault, fires a handler macro, and records "
             "a Fault event (time-travel visible); no SEH chain / auto-resume yet");
     }
+    // 11 & 21: native decompiler — expression building, constant folding, pointer arithmetic.
+    {
+        auto s = fresh(kLoop);  // mov rcx,5 ; loop: dec rcx ; jnz ; hlt
+        auto r = s.decompile(0x1000, 32);
+        std::string c = r ? r.value() : "";
+        bool exprs = c.find("- 1") != std::string::npos;         // expression built, not raw asm
+        bool refused = c.find("!= 0") != std::string::npos;      // dec/jnz re-fused to a comparison
+        rec(11, 'A', "Constant folding / opt detection", (exprs && refused) ? V::PARTIAL : V::FAIL,
+            "native IR decompiler builds expressions + folds constant sub-expressions + re-fuses "
+            "cmp/jcc; full cross-statement propagation is a later milestone");
+    }
+    {
+        // lea rax,[rbx+rcx*4+8] ; ret  -> an address expression base+index*scale+disp.
+        auto s = fresh({0x48, 0x8D, 0x44, 0x8B, 0x08, 0xC3});
+        auto r = s.decompile(0x1000, 16);
+        std::string c = r ? r.value() : "";
+        bool addr_expr = c.find("* 4") != std::string::npos && c.find("+ 8") != std::string::npos;
+        rec(21, 'B', "Pointer-arithmetic simplification", addr_expr ? V::PARTIAL : V::FAIL,
+            "address expressions base+index*scale+disp recovered from MemOperand (lea => expression)");
+    }
     // 60: pointer-encryption detection (PTR_MANGLE / EncodePointer).
     {
         // xor rax, fs:[0x30] ; ror rax, 0x11 ; hlt
@@ -348,7 +368,6 @@ int main(int argc, char** argv) {
 
     // --- static capability verdicts (feature present / close analog) --------
     rec(7,'A',"Function prologue/boundary ID", V::PARTIAL, "CFG/call-graph recover function blocks; no prologue-signature pass");
-    rec(11,'A',"Constant folding / opt detection", V::FAIL, "linear decompiler fallback; no optimization modelling");
     rec(12,'A',"Variable naming heuristics", V::FAIL, "decompiler fallback does not synthesize variable names");
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
@@ -357,7 +376,6 @@ int main(int argc, char** argv) {
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
     rec(19,'B',"Exception-handler visualization", V::NA, "no SEH model (see TRANSPARENCY roadmap: fault delivery)");
     rec(20,'B',"Switch/case reconstruction", V::FAIL, "jump tables not reconstructed");
-    rec(21,'B',"Pointer-arithmetic simplification", V::FAIL, "needs the full decompiler backend");
     rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
     rec(23,'B',"Function signature inference", V::FAIL, "no parameter/type recovery in the fallback decompiler");
     rec(24,'B',"Variable scope/lifetime", V::FAIL, "needs the full decompiler backend");

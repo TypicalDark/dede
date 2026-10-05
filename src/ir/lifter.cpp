@@ -175,6 +175,16 @@ struct Lifter {
             return;
         }
 
+        if (m == "bt") {  // CF = bit[pos] of operand (anti-VM: hypervisor-bit probe)
+            unsigned char sz = osize(ops[0]);
+            Vn sh = tmp(sz);
+            emit(Op::Shr, sh, read(ops[0]), read(ops[1]));
+            Vn bit = tmp(1);
+            emit(Op::And, bit, sh, Vn::k(1, 1));
+            emit(Op::Copy, Vn::f(Flag::CF), bit);
+            return;
+        }
+
         if (m == "jmp") { emit(Op::Branch, Vn::none(), read(ops[0])); return; }
         if (in.cf.is_cond_branch) {
             // Condition is a placeholder flag read until data-flow re-fuses it.
