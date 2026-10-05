@@ -157,6 +157,24 @@ void run_dynamic_checks() {
         rec(84,'E',"Type database / stdlib types", V::PARTIAL,
             "native type lattice + C-type rendering; a libc/Win32 prototype DB is the documented next step");
     }
+    // 12 & 24: stack-variable recovery (named locals + declarations/scope).
+    {
+        // push rbp; mov rbp,rsp; mov [rbp-8],rdi; mov rax,[rbp-8]; add rax,1; pop rbp; ret
+        AnalysisSession s(Arch::X86_64);
+        s.map(0x1000, 0x10000, perm::RWX);
+        s.map(0x70000, 0x10000, perm::RW);
+        s.core().cpu().set(Reg::Rsp, 0x78000);
+        s.load(0x1000, {0x55,0x48,0x89,0xE5,0x48,0x89,0x7D,0xF8,0x48,0x8B,0x45,0xF8,0x48,0x83,0xC0,0x01,0x5D,0xC3}, perm::RWX);
+        s.set_entry(0x1000);
+        auto r = s.decompile(0x1000, 64);
+        std::string c = r ? r.value() : "";
+        bool named = c.find("var_8") != std::string::npos;
+        bool declared = c.find("int64_t var_8;") != std::string::npos;
+        rec(12,'A',"Variable naming heuristics", named ? V::PARTIAL : V::FAIL,
+            "frame (rbp-relative) stack slots recovered as named locals var_N / arg_N");
+        rec(24,'B',"Variable scope/lifetime", declared ? V::PARTIAL : V::FAIL,
+            "recovered locals are declared with a type at function scope");
+    }
     // 60: pointer-encryption detection (PTR_MANGLE / EncodePointer).
     {
         // xor rax, fs:[0x30] ; ror rax, 0x11 ; hlt
@@ -390,7 +408,6 @@ int main(int argc, char** argv) {
 
     // --- static capability verdicts (feature present / close analog) --------
     rec(7,'A',"Function prologue/boundary ID", V::PARTIAL, "CFG/call-graph recover function blocks; no prologue-signature pass");
-    rec(12,'A',"Variable naming heuristics", V::FAIL, "decompiler fallback does not synthesize variable names");
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
     rec(16,'B',"Decompiler readability", V::PARTIAL, "linear-pseudocode fallback; Ghidra-native adapter behind a build flag");
@@ -398,7 +415,6 @@ int main(int argc, char** argv) {
     rec(19,'B',"Exception-handler visualization", V::NA, "no SEH model (see TRANSPARENCY roadmap: fault delivery)");
     rec(20,'B',"Switch/case reconstruction", V::FAIL, "jump tables not reconstructed");
     rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
-    rec(24,'B',"Variable scope/lifetime", V::FAIL, "needs the full decompiler backend");
     rec(26,'B',"Virtual method resolution", V::NA, "no C++ RTTI/vtable recovery (roadmap: UML view)");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");

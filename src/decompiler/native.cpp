@@ -30,16 +30,17 @@ using ir::Op;
 struct Expr;
 using ExprP = std::shared_ptr<Expr>;
 struct Expr {
-    enum class K { Const, Reg, Flag, Load, Binary, Unary } k;
+    enum class K { Const, Reg, Flag, Load, Binary, Unary, Var } k;
     long long cval = 0;
     Reg reg = Reg::Rax;
     Flag flag = Flag::CF;
     Op op = Op::Copy;
     ExprP a, b;
     unsigned char size = 8;
+    std::string text;  // Var: the synthesized local name (var_8 / arg_10)
 };
 ExprP mk(Expr e) { return std::make_shared<Expr>(std::move(e)); }
-ExprP ec(long long v, unsigned char s = 8) { return mk({Expr::K::Const, v, Reg::Rax, Flag::CF, Op::Copy, nullptr, nullptr, s}); }
+ExprP ec(long long v, unsigned char s = 8) { Expr e; e.k = Expr::K::Const; e.cval = v; e.size = s; return mk(e); }
 ExprP er(Reg r, unsigned char s = 8) { Expr e; e.k = Expr::K::Reg; e.reg = r; e.size = s; return mk(e); }
 ExprP ef(Flag f) { Expr e; e.k = Expr::K::Flag; e.flag = f; e.size = 1; return mk(e); }
 
@@ -53,6 +54,7 @@ bool equal(const ExprP& x, const ExprP& y) {
         case Expr::K::Binary: return x->op == y->op && equal(x->a, y->a) && equal(x->b, y->b);
         case Expr::K::Unary: return x->op == y->op && equal(x->a, y->a);
         case Expr::K::Load: return equal(x->a, y->a);
+        case Expr::K::Var: return x->text == y->text;
     }
     return false;
 }
@@ -128,8 +130,24 @@ std::string print(const ExprP& e, int prec) {
         case Expr::K::Load: return "*(uint" + std::to_string(e->size * 8) + "_t *)(" + print(e->a) + ")";
         case Expr::K::Binary: return print_binary(e, prec);
         case Expr::K::Unary: return (e->op == Op::Neg ? "-" : "~") + print(e->a, 7);
+        case Expr::K::Var: return e->text;
     }
     return "?";
+}
+
+// Recognise a frame-relative address (rbp/rsp ± k) and name it as a local.
+std::optional<std::string> slot_name(const ExprP& addr) {
+    auto frame = [](Reg r) { return r == Reg::Rbp; };  // stable frame pointer only
+    auto fmt = [](const char* pfx, long long v) {
+        char b[32]; std::snprintf(b, sizeof b, "%s%llx", pfx, (unsigned long long)v); return std::string(b);
+    };
+    if (addr->k == Expr::K::Reg && frame(addr->reg)) return std::string("var_0");
+    if (addr->k == Expr::K::Binary && addr->op == Op::Add && addr->a->k == Expr::K::Reg &&
+        frame(addr->a->reg) && addr->b->k == Expr::K::Const) {
+        long long c = addr->b->cval;
+        return c < 0 ? fmt("var_", -c) : fmt("arg_", c);
+    }
+    return std::nullopt;
 }
 
 // --- per-block fold ---------------------------------------------------------
@@ -143,6 +161,7 @@ struct Folder {
     std::map<Reg, ExprP> regs;
     std::map<Flag, ExprP> flags;
     std::map<Reg, bool> written;
+    std::map<std::string, types::LType> stack_vars;  // recovered named locals
 
     ExprP of(const ir::Vn& v) {
         switch (v.kind) {
@@ -219,8 +238,28 @@ struct Folder {
                             fs = {FlagSrc::RegResult, nullptr, nullptr, in.out.reg};
                     } else if (in.out.kind == ir::VnKind::Flag) flags[in.out.flag] = of(in.a);
                     break;
-                case Op::Load: if (in.out.kind == ir::VnKind::Temp) { Expr e; e.k = Expr::K::Load; e.a = of(in.a); e.size = in.out.size; temp[in.out.temp] = mk(e); } break;
-                case Op::Store: out.stmts.push_back("*(uint" + std::to_string(in.b.size * 8) + "_t *)(" + print(of(in.a)) + ") = " + print(of(in.b)) + ";"); break;
+                case Op::Load:
+                    if (in.out.kind == ir::VnKind::Temp) {
+                        ExprP a = of(in.a);
+                        if (auto nm = slot_name(a)) {
+                            Expr e; e.k = Expr::K::Var; e.text = *nm; e.size = in.out.size;
+                            temp[in.out.temp] = mk(e);
+                            stack_vars[*nm] = {types::TClass::Integer, in.out.size, types::Sign::Unknown};
+                        } else {
+                            Expr e; e.k = Expr::K::Load; e.a = a; e.size = in.out.size; temp[in.out.temp] = mk(e);
+                        }
+                    }
+                    break;
+                case Op::Store: {
+                    ExprP a = of(in.a);
+                    if (auto nm = slot_name(a)) {
+                        out.stmts.push_back(*nm + " = " + print(of(in.b)) + ";");
+                        stack_vars[*nm] = {types::TClass::Integer, in.b.size, types::Sign::Unknown};
+                    } else {
+                        out.stmts.push_back("*(uint" + std::to_string(in.b.size * 8) + "_t *)(" + print(a) + ") = " + print(of(in.b)) + ";");
+                    }
+                    break;
+                }
                 case Op::Add: case Op::Sub: case Op::Mul: case Op::And: case Op::Or:
                 case Op::Xor: case Op::Shl: case Op::Shr: case Op::Sar:
                     if (in.out.kind == ir::VnKind::Temp) {
@@ -256,12 +295,14 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
     // buffer the body first so declarations (which depend on written regs) lead
     std::ostringstream body;
     std::set<Reg> written_regs;
+    std::map<std::string, types::LType> stack_vars;
     for (const auto& bb : cfg.blocks) {
         if (labels.count(bb.start)) { char b[24]; std::snprintf(b, sizeof b, "%llx", (unsigned long long)bb.start); body << "loc_" << b << ":\n"; }
         ir::Block ib = ir::lift_block(bb);
         Folder f;
         BlockOut bo = f.run(ib);
         for (const auto& [r, w] : f.written) if (w) written_regs.insert(r);
+        for (const auto& [nm, t] : f.stack_vars) stack_vars[nm] = t;
         for (const auto& s : bo.stmts) body << "    " << s << "\n";
         // control-flow tail from the CFG
         Addr taken = 0, nottaken = 0, jump = 0;
@@ -299,6 +340,10 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         if (param_regs.count(r) || r == Reg::Rsp || r == Reg::Rbp) continue;
         types::LType t = ft.regs.count(r) ? ft.regs.at(r) : types::LType{};
         os << "    " << types::c_type(t) << " " << std::string(reg_name(r)) << ";\n";
+        any_decl = true;
+    }
+    for (const auto& [nm, t] : stack_vars) {  // recovered stack locals
+        os << "    " << types::c_type(t) << " " << nm << ";\n";
         any_decl = true;
     }
     if (any_decl) os << "\n";
