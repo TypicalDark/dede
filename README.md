@@ -47,9 +47,12 @@ Everything below runs and is covered by tests — build it and try the demo.
 - **QoL** — symbols, memory search, stack telescope, watchpoints, who-last-wrote
   (time-travel data query), session save/load, command history, aliases.
 - **Shell** — an interactive REPL driving everything through one engine interface.
-- **GUI** — an optional Vulkan + Dear ImGui desktop workspace (same engine
-  interface), with a CFG graph view, timeline scrubber, and embedded console.
-  See [docs/GUI.md](docs/GUI.md) for a tour with rendered views of each panel.
+- **GUI** — an optional Vulkan + Dear ImGui desktop workspace built on a modular,
+  git-tool-style shell (a contribution Registry + feature modules + swappable
+  theme + interchangeable painter backends), so adding a panel is one file and the
+  same UI renders headlessly to SVG or live through ImGui. See
+  [docs/UI_REDESIGN.md](docs/UI_REDESIGN.md) for the architecture and
+  [docs/GUI.md](docs/GUI.md) for a visual tour.
 - **Self-scoring** — `dede-eval` runs dede against a 150-point RE-tool
   effectiveness suite and writes [docs/EFFECTIVENESS_REPORT.md](docs/EFFECTIVENESS_REPORT.md).
 
@@ -134,7 +137,7 @@ apps/                 dede (REPL), dede-decrypt-demo, dede-eval, dede-bench,
 tests/                a dependency-free harness; 14 suites + the effectiveness run
 docs/                 ARCHITECTURE · PATTERNS · TRANSPARENCY · NETWORK_CAPTURE ·
                       DESIGN_REVIEW · EFFECTIVENESS_REPORT · LICENSING · TUTORIAL ·
-                      GUI · COMPARISON
+                      GUI · UI_REDESIGN · DECOMPILER · COMPARISON
 ```
 
 ## Status

@@ -16,7 +16,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include "dede/gui/workspace.hpp"
+#include "dede/gui/shell_app.hpp"
 #include "dede/script/script_engine.hpp"
 #include "dede/session/analysis_session.hpp"
 
@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
     ii.CheckVkResultFn = check_vk;
     ImGui_ImplVulkan_Init(&ii);
 
-    gui::Workspace workspace(session, *script);
+    gui::ShellApp workspace(session, *script);
     workspace.attach();
 
     while (!glfwWindowShouldClose(window)) {

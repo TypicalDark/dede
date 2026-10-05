@@ -141,11 +141,15 @@ if(DEDE_WITH_GUI)
   # Vendored third-party code is not held to our -Wall -Wextra -Werror.
   target_compile_options(dede_imgui PRIVATE -w)
 
-  dede_library(dede_gui SRCS src/gui/workspace.cpp DEPS dede_session dede_script dede_shell dede_analysis dede_imgui)
+  # The GUI is now a thin host over the modular UI kernel + feature modules; the
+  # ImGui painter is the only GUI-specific rendering code.
+  dede_library(dede_gui
+    SRCS src/gui/shell_app.cpp src/ui/backends/imgui_painter.cpp
+    DEPS dede_ui dede_ui_modules dede_session dede_script dede_imgui)
 
   add_executable(dede-gui apps/dede_gui.cpp)
-  target_link_libraries(dede-gui PRIVATE dede_gui dede_imgui dede_shell dede_session dede_script
-                                         Vulkan::Vulkan ${GLFW3_LIBRARIES})
+  target_link_libraries(dede-gui PRIVATE dede_gui dede_imgui dede_ui dede_ui_modules
+                                         dede_session dede_script Vulkan::Vulkan ${GLFW3_LIBRARIES})
 endif()
 
 # --- executables -------------------------------------------------------------
