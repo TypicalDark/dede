@@ -103,6 +103,14 @@ endif()
 
 dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script dede_analysis dede_loader)
 
+# --- modular UI kernel (headless, backend-agnostic) --------------------------
+# git-tool-style architecture: a contribution Registry + reactive Context +
+# CommandBus + IPainter, with feature modules that register manifests and two
+# painter backends (SVG for headless render/tests, ImGui for the desktop GUI).
+dede_library(dede_ui
+  SRCS src/ui/context.cpp src/ui/registry.cpp src/ui/commands.cpp
+  DEPS dede_common)
+
 # --- Vulkan + Dear ImGui GUI (optional) --------------------------------------
 option(DEDE_WITH_GUI "Build the Vulkan/ImGui desktop GUI (needs libvulkan-dev, libglfw3-dev, and third_party/imgui)" OFF)
 if(DEDE_WITH_GUI)
@@ -155,7 +163,7 @@ target_link_libraries(dede-shot PRIVATE dede_session dede_analysis dede_samples)
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)
@@ -164,5 +172,6 @@ if(DEDE_BUILD_TESTS)
   # Guard the effectiveness harness and its hot-path checks: it must run all
   # dynamic engine checks without crashing and exit 0.
   target_link_libraries(test_tiers PRIVATE dede_samples)
+  target_link_libraries(test_ui PRIVATE dede_ui)
   add_test(NAME effectiveness COMMAND dede-eval ${CMAKE_BINARY_DIR}/effectiveness-report.md)
 endif()
