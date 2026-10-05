@@ -253,6 +253,83 @@ See `help` for the full command list, including `opcodes`, `strings`, `search`,
 `rp fault` (break on exception — execution stops on any CPU fault, a bound handler
 macro fires, and the fault is recorded as a time-travel-visible event).
 
+## The decompiler — from bytes to typed C
+
+`decompile <addr> <len>` runs dede's native pipeline: lift each basic block to a
+P-code-flavored IR (differentially validated against the interpreter), build
+expression trees with constant folding and `cmp`/`jcc` re-fusion, recover
+stack/register variables and types, structure the control flow, and emit C.
+
+**Structured control flow + re-fused conditions.** Tier 1's counting loop comes
+back as a `do/while`, not goto spaghetti — the `dec`/`jnz` flag dance is re-fused
+into a real comparison:
+
+```
+dede> decompile 0x1000 24
+int64_t sub_1000(void) {
+    int64_t rax;
+    int64_t rcx;
+
+    rax = 0;
+    rcx = 5;
+    do {
+        rax = rax + rcx;
+        rcx = rcx - 1;
+    } while (rcx != 0);
+    return rax;
+}
+```
+
+**Switch / jump-table recovery.** A `cmp idx,N; ja default; jmp [table+idx*8]`
+dispatch is recognized at CFG-build time — dede reads the real table out of the
+live image and materializes one case per entry, so the decompiler emits a
+`switch` instead of an unresolved indirect jump:
+
+```
+    switch (idx) {
+        case 0: goto loc_100d;
+        case 1: goto loc_1015;
+        case 2: goto loc_101d;
+        case 3: goto loc_1025;
+    }
+```
+
+**Struct recovery.** A pointer dereferenced at several offsets is clustered into a
+struct, and the accesses are rendered as field references (loads *and* stores):
+
+```
+dede> decompile 0x1000 15        # mov rax,[rdi]; mov rcx,[rdi+8]; add; mov [rdi+0x10],rax; ret
+struct s_rdi {
+    int64_t field_0;   // +0x0
+    int64_t field_8;   // +0x8
+    int64_t field_10;  // +0x10
+};
+
+int64_t sub_1000(struct s_rdi * rdi) {
+    int64_t rax;
+    int64_t rcx;
+
+    rax = rdi->field_0;
+    rcx = rdi->field_8;
+    rax = rax + rcx;
+    rdi->field_10 = rax;
+    return rax;
+}
+```
+
+**Bitfield reconstruction.** The `(x >> lo) & mask` idiom is collapsed across
+statements into a `BITFIELD(x, lo, width)` intrinsic (the helper form Hex-Rays /
+Ghidra use), e.g. `mov rax,rdi; shr rax,3; and rax,7` →
+
+```
+    rax = BITFIELD(rdi, 3, 3);   // a 3-bit field at bit 3
+```
+
+Single-bit extracts are deliberately left as `(x >> k) & 1` bit-tests. How dede's
+decompiler compares to Ghidra/IDA/Binary Ninja — and what is still in progress
+(full SSA + cross-statement data-flow) — is in [COMPARISON.md](COMPARISON.md) and
+[DECOMPILER.md](DECOMPILER.md).
+
 ## The GUI
 
 Every command above is also a panel in the optional Vulkan/ImGui workspace, which
