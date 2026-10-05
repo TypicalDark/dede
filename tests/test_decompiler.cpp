@@ -72,4 +72,27 @@ TEST("decompiler recovers and names a stack local (variable recovery)") {
     CHECK(has(c, "sub_1000(int64_t rdi"));   // rdi recovered as a typed parameter
 }
 
+TEST("structuring: self-loop becomes do/while (tier 1)") {
+    std::string c = decompile_tier(1);
+    CHECK(has(c, "do {"));
+    CHECK(has(c, "} while (rcx != 0);"));
+    CHECK(!has(c, "goto"));  // fully structured, no goto
+}
+
+TEST("structuring: if/else with no goto (tier 4)") {
+    std::string c = decompile_tier(4);
+    CHECK(has(c, "if ("));
+    CHECK(has(c, "} else {"));
+    CHECK(!has(c, "goto"));
+}
+
+TEST("structuring: pre-test loop becomes a while with inverted condition") {
+    // mov rcx,0; mov rax,0; L: cmp rcx,5; jge E; add rax,rcx; inc rcx; jmp L; E: ret
+    std::string c = decompile_bytes({0x48, 0xC7, 0xC1, 0, 0, 0, 0, 0x48, 0xC7, 0xC0, 0, 0, 0, 0,
+                                     0x48, 0x83, 0xF9, 0x05, 0x7D, 0x08, 0x48, 0x01, 0xC8,
+                                     0x48, 0xFF, 0xC1, 0xEB, 0xF2, 0xC3});
+    CHECK(has(c, "while (rcx < 5) {"));  // jge exit -> while(rcx < 5)
+    CHECK(!has(c, "goto"));
+}
+
 int main() { return dede::test::run_all(); }

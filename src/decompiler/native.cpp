@@ -7,6 +7,7 @@
 // (goto control flow for now; structuring is M5). It replaces the linear
 // per-instruction fallback as the default IDecompiler.
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -283,52 +284,207 @@ struct Folder {
     }
 };
 
+// Negate a condition for a loop whose test exits the loop. Flips a single
+// comparison operator for readability; falls back to !(...) otherwise.
+std::string negate_cond(const std::string& c) {
+    struct F { const char* a; const char* b; };
+    static const F flips[] = {{" >= ", " < "}, {" <= ", " > "}, {" > ", " <= "},
+                              {" < ", " >= "}, {" == ", " != "}, {" != ", " == "}};
+    if (c.find('(') == std::string::npos)
+        for (const auto& f : flips) {
+            std::string a = f.a;
+            auto p = c.find(a);
+            if (p != std::string::npos && c.find(a, p + 1) == std::string::npos)
+                return c.substr(0, p) + f.b + c.substr(p + a.size());
+        }
+    return "!(" + c + ")";
+}
+
+// --- dominators / post-dominators -------------------------------------------
+constexpr Addr kExit = ~Addr(0);
+
+std::map<Addr, std::set<Addr>> compute_dom(const std::vector<Addr>& nodes, Addr root,
+                                           const std::map<Addr, std::vector<Addr>>& preds) {
+    std::map<Addr, std::set<Addr>> dom;
+    std::set<Addr> all(nodes.begin(), nodes.end());
+    for (Addr n : nodes) dom[n] = all;
+    dom[root] = {root};
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (Addr n : nodes) {
+            if (n == root) continue;
+            std::set<Addr> inter;
+            bool first = true;
+            auto it = preds.find(n);
+            if (it != preds.end())
+                for (Addr p : it->second) {
+                    if (!dom.count(p)) continue;
+                    if (first) { inter = dom[p]; first = false; }
+                    else { std::set<Addr> t; for (Addr x : inter) if (dom[p].count(x)) t.insert(x); inter.swap(t); }
+                }
+            inter.insert(n);
+            if (inter != dom[n]) { dom[n] = inter; changed = true; }
+        }
+    }
+    return dom;
+}
+
+// Immediate post-dominator = the nearest post-dominator (the one with the most
+// post-dominators of its own among n's strict post-dominators).
+Addr ipdom_of(Addr n, const std::map<Addr, std::set<Addr>>& pdom) {
+    auto it = pdom.find(n);
+    if (it == pdom.end()) return kExit;
+    Addr best = kExit; std::size_t bestsz = 0; bool found = false;
+    for (Addr c : it->second) {
+        if (c == n) continue;
+        std::size_t sz = pdom.count(c) ? pdom.at(c).size() : 1;
+        if (!found || sz > bestsz) { bestsz = sz; best = c; found = true; }
+    }
+    return best;
+}
+
 // --- function emitter -------------------------------------------------------
+struct BInfo {
+    std::vector<std::string> stmts;
+    std::string condition;
+    Addr taken = 0, nottaken = 0, jump = 0;
+    bool terminal = false;
+};
+
 std::string decompile_function(const IDisassembler& dis, const ByteReader& read, Addr entry) {
     Cfg cfg = build_cfg(dis, read, entry);
     types::FuncTypes ft = types::infer_function(dis, read, entry);
 
-    // which block starts are jump targets (need a label)?
-    std::set<Addr> labels;
-    for (const auto& e : cfg.edges) labels.insert(e.to);
-
-    // buffer the body first so declarations (which depend on written regs) lead
-    std::ostringstream body;
+    std::map<Addr, BInfo> info;
     std::set<Reg> written_regs;
     std::map<std::string, types::LType> stack_vars;
+    std::vector<Addr> nodes;
+    std::map<Addr, std::vector<Addr>> succ, preds;
+
     for (const auto& bb : cfg.blocks) {
-        if (labels.count(bb.start)) { char b[24]; std::snprintf(b, sizeof b, "%llx", (unsigned long long)bb.start); body << "loc_" << b << ":\n"; }
+        nodes.push_back(bb.start);
         ir::Block ib = ir::lift_block(bb);
         Folder f;
         BlockOut bo = f.run(ib);
         for (const auto& [r, w] : f.written) if (w) written_regs.insert(r);
         for (const auto& [nm, t] : f.stack_vars) stack_vars[nm] = t;
-        for (const auto& s : bo.stmts) body << "    " << s << "\n";
-        // control-flow tail from the CFG
-        Addr taken = 0, nottaken = 0, jump = 0;
-        bool term = bb.terminates;
+        BInfo bi;
+        bi.stmts = bo.stmts;
+        bi.condition = bo.condition;
+        bi.terminal = bb.terminates;
         for (const auto& e : cfg.edges) {
             if (e.from != bb.start) continue;
-            if (e.kind == EdgeKind::Taken) taken = e.to;
-            else if (e.kind == EdgeKind::NotTaken) nottaken = e.to;
-            else if (e.kind == EdgeKind::Jump) jump = e.to;
-            else if (e.kind == EdgeKind::Fallthrough) nottaken = e.to;
+            if (e.kind == EdgeKind::Taken) bi.taken = e.to;
+            else if (e.kind == EdgeKind::NotTaken) bi.nottaken = e.to;
+            else if (e.kind == EdgeKind::Jump) bi.jump = e.to;
+            else if (e.kind == EdgeKind::Fallthrough) bi.nottaken = e.to;
         }
-        char tb[24], nb[24], jb[24];
-        std::snprintf(tb, sizeof tb, "%llx", (unsigned long long)taken);
-        std::snprintf(nb, sizeof nb, "%llx", (unsigned long long)nottaken);
-        std::snprintf(jb, sizeof jb, "%llx", (unsigned long long)jump);
-        if (!bo.condition.empty() && taken) {
-            body << "    if (" << bo.condition << ") goto loc_" << tb << ";\n";
-            if (nottaken) body << "    goto loc_" << nb << ";\n";
-        } else if (jump) {
-            body << "    goto loc_" << jb << ";\n";
-        } else if (term) {
-            body << "    return rax;\n";
-        } else if (nottaken) {
-            body << "    goto loc_" << nb << ";\n";
-        }
+        info[bb.start] = std::move(bi);
     }
+    for (Addr n : nodes) {
+        const BInfo& b = info[n];
+        std::vector<Addr> s;
+        if (b.taken) s.push_back(b.taken);
+        if (b.nottaken) s.push_back(b.nottaken);
+        if (b.jump) s.push_back(b.jump);
+        if (s.empty()) s.push_back(kExit);
+        succ[n] = s;
+        for (Addr t : s) preds[t].push_back(n);
+    }
+    auto dom = compute_dom(nodes, entry, preds);
+    std::vector<Addr> rnodes = nodes; rnodes.push_back(kExit);
+    auto pdom = compute_dom(rnodes, kExit, succ);  // reverse-graph preds = forward succ
+
+    // loop headers: target of a back-edge (edge m->h where h dominates m)
+    std::set<Addr> loop_headers;
+    for (Addr m : nodes)
+        for (Addr s : succ[m])
+            if (s != kExit && dom.count(m) && dom.at(m).count(s)) loop_headers.insert(s);
+
+    // can `from` reach `target` over flow edges (for while body/exit classification)?
+    auto can_reach = [&](Addr from, Addr target) {
+        std::set<Addr> vis;
+        std::vector<Addr> st{from};
+        while (!st.empty()) {
+            Addr x = st.back(); st.pop_back();
+            if (x == target) return true;
+            if (x == kExit || vis.count(x)) continue;
+            vis.insert(x);
+            auto it = succ.find(x);
+            if (it != succ.end()) for (Addr s : it->second) st.push_back(s);
+        }
+        return false;
+    };
+
+    auto hexa = [](Addr a) { char b[24]; std::snprintf(b, sizeof b, "%llx", (unsigned long long)a); return std::string(b); };
+
+    // Two-pass structured emission: pass 1 discovers which blocks are goto'd (need
+    // a label); pass 2 writes, labelling only those. do-while for self-loops, if/
+    // else via the post-dominator join, goto fallback for everything else.
+    std::set<Addr> need_label;
+    std::set<Addr> seen;
+    std::ostringstream body;
+    std::function<void(Addr, Addr, int, bool)> emit = [&](Addr n, Addr stop, int ind, bool collect) {
+        std::string pad(static_cast<std::size_t>(ind) * 4 + 4, ' ');
+        while (n != kExit && n != stop && n != 0) {
+            auto fit = info.find(n);
+            if (fit == info.end()) return;
+            const BInfo& b = fit->second;
+            if (seen.count(n)) { if (collect) need_label.insert(n); else body << pad << "goto loc_" << hexa(n) << ";\n"; return; }
+            seen.insert(n);
+            if (!collect && need_label.count(n)) body << "loc_" << hexa(n) << ":\n";
+
+            if (!b.condition.empty() && b.taken == n) {  // self-loop -> do/while
+                if (!collect) { body << pad << "do {\n"; for (const auto& s : b.stmts) body << pad << "    " << s << "\n"; body << pad << "} while (" << b.condition << ");\n"; }
+                n = b.nottaken; continue;
+            }
+            // pre-test while: a conditional loop header whose own stmts are just the
+            // test (no side effects), with one successor in the loop and one out.
+            if (loop_headers.count(n) && !b.condition.empty() && b.taken && b.nottaken && b.stmts.empty()) {
+                bool taken_body = can_reach(b.taken, n);
+                bool nottaken_body = can_reach(b.nottaken, n);
+                if (taken_body != nottaken_body) {
+                    Addr bodyN = taken_body ? b.taken : b.nottaken;
+                    Addr exitN = taken_body ? b.nottaken : b.taken;
+                    std::string cond = taken_body ? b.condition : negate_cond(b.condition);
+                    if (!collect) body << pad << "while (" << cond << ") {\n";
+                    emit(bodyN, n, ind + 1, collect);  // body closes at the header
+                    if (!collect) body << pad << "}\n";
+                    n = exitN; continue;
+                }
+            }
+            if (!collect) for (const auto& s : b.stmts) body << pad << s << "\n";
+
+            if (!b.condition.empty() && b.taken && b.nottaken) {
+                bool back = dom.count(n) && (dom.at(n).count(b.taken) || dom.at(n).count(b.nottaken));
+                Addr j = ipdom_of(n, pdom);
+                if (!back && b.taken != b.nottaken && j != n) {
+                    if (!collect) body << pad << "if (" << b.condition << ") {\n";
+                    emit(b.taken, j, ind + 1, collect);
+                    if (b.nottaken != j) { if (!collect) body << pad << "} else {\n"; emit(b.nottaken, j, ind + 1, collect); }
+                    if (!collect) body << pad << "}\n";
+                    if (j == kExit) return;
+                    n = j; continue;
+                }
+                // fallback: conditional goto
+                if (collect) need_label.insert(b.taken);
+                else body << pad << "if (" << b.condition << ") goto loc_" << hexa(b.taken) << ";\n";
+                n = b.nottaken; continue;
+            } else if (b.jump) {
+                if (b.jump == stop) return;  // back-edge/exit to an enclosing region closes it
+                if (seen.count(b.jump)) { if (collect) need_label.insert(b.jump); else body << pad << "goto loc_" << hexa(b.jump) << ";\n"; return; }
+                n = b.jump; continue;
+            } else if (b.terminal) {
+                if (!collect) body << pad << "return rax;\n";
+                return;
+            } else if (b.nottaken) {
+                n = b.nottaken; continue;
+            } else return;
+        }
+    };
+    seen.clear(); emit(entry, kExit, 0, true);
+    seen.clear(); body.str(""); emit(entry, kExit, 0, false);
 
     // assemble: typed signature + local declarations + body
     std::ostringstream os;
