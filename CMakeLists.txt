@@ -81,6 +81,9 @@ endif()
 
 dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp src/analysis/scan.cpp DEPS dede_disasm)
 
+# Decompiler IR: lifter + reference evaluator (see docs/DECOMPILER.md, M1+).
+dede_library(dede_ir SRCS src/ir/ir.cpp src/ir/lifter.cpp src/ir/eval.cpp DEPS dede_analysis)
+
 dede_library(dede_samples SRCS src/samples/tiers.cpp DEPS dede_common)
 
 dede_library(dede_introspection SRCS src/introspection/introspector.cpp DEPS dede_common)
@@ -176,7 +179,7 @@ target_link_libraries(dede-shot PRIVATE dede_ui dede_ui_modules dede_session ded
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)
@@ -186,5 +189,6 @@ if(DEDE_BUILD_TESTS)
   # dynamic engine checks without crashing and exit 0.
   target_link_libraries(test_tiers PRIVATE dede_samples)
   target_link_libraries(test_ui PRIVATE dede_ui)
+  target_link_libraries(test_ir PRIVATE dede_ir)
   add_test(NAME effectiveness COMMAND dede-eval ${CMAKE_BINARY_DIR}/effectiveness-report.md)
 endif()
