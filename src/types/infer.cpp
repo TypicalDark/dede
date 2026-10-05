@@ -55,6 +55,10 @@ FuncTypes infer_function(const IDisassembler& dis, const ByteReader& read, Addr 
     std::set<Reg> defined;
     std::set<Reg> live_set;
     std::vector<Reg> live_order;
+
+    // Per-base dereference accesses, for struct/array (aggregate) recovery.
+    struct Acc { bool array = false; unsigned stride = 0; std::map<i64, Field> offs; };
+    std::map<Reg, Acc> derefs;
     auto record_read = [&](Reg r) {
         if (!defined.count(r) && !live_set.count(r)) { live_set.insert(r); live_order.push_back(r); }
     };
@@ -75,8 +79,14 @@ FuncTypes infer_function(const IDisassembler& dis, const ByteReader& read, Addr 
                 if (op.kind == OpKind::Mem) {
                     if (op.mem.has_base) {
                         record_read(op.mem.base);
-                        if (m != "lea")  // a real dereference -> the base is a pointer
+                        if (m != "lea") {  // a real dereference -> the base is a pointer
                             refine(op.mem.base, {TClass::Pointer, 8, Sign::Unknown});
+                            // Record the access shape for aggregate recovery.
+                            unsigned sz = op.size ? op.size : (op.mem.size ? op.mem.size : 8);
+                            Acc& acc = derefs[op.mem.base];
+                            if (op.mem.has_index) { acc.array = true; acc.stride = op.mem.scale ? op.mem.scale : sz; }
+                            acc.offs[op.mem.disp] = Field{op.mem.disp, static_cast<unsigned char>(sz), Sign::Unknown, false};
+                        }
                     }
                     if (op.mem.has_index) record_read(op.mem.index);
                 } else if (op.kind == OpKind::Reg) {
@@ -119,8 +129,40 @@ FuncTypes infer_function(const IDisassembler& dis, const ByteReader& read, Addr 
     // return: rax's view, or a default integer
     ft.ret = ft.regs.count(Reg::Rax) ? ft.regs[Reg::Rax] : LType{TClass::Integer, 8, Sign::Signed};
     if (ft.ret.cls == TClass::Top) ft.ret.cls = TClass::Integer;
+
+    // Aggregate recovery: a pointer dereferenced at several offsets is a struct;
+    // indexed access makes it an array. A lone `[p+0]` is just `*p`, not a struct.
+    for (auto& [base, acc] : derefs) {
+        auto rit = ft.regs.find(base);
+        if (rit == ft.regs.end() || rit->second.cls != TClass::Pointer) continue;
+        Aggregate ag;
+        ag.tag = std::string("s_") + std::string(reg_name(base));
+        ag.is_array = acc.array;
+        ag.stride = acc.stride;
+        for (auto& [off, f] : acc.offs) ag.fields.push_back(f);  // std::map => sorted by offset
+        const bool structural = ag.is_array || ag.fields.size() >= 2 ||
+                                (ag.fields.size() == 1 && ag.fields[0].offset != 0);
+        if (structural) ft.aggregates[base] = std::move(ag);
+    }
     return ft;
 }
+
+namespace {
+// The C spelling of a parameter, preferring a recovered aggregate pointer type.
+std::string param_ctype(const Param& p, const std::map<Reg, Aggregate>& aggs) {
+    auto it = aggs.find(p.reg);
+    if (it != aggs.end()) {
+        const Aggregate& ag = it->second;
+        if (ag.is_array) {  // element type * : the stride/first field gives the element
+            unsigned char w = ag.fields.empty() ? static_cast<unsigned char>(ag.stride ? ag.stride : 8)
+                                                 : ag.fields.front().width;
+            return c_type({TClass::Integer, w, Sign::Unknown}) + " *";
+        }
+        return "struct " + ag.tag + " *";
+    }
+    return c_type(p.type);
+}
+}  // namespace
 
 std::string FuncTypes::signature() const {
     char h[24];
@@ -130,10 +172,26 @@ std::string FuncTypes::signature() const {
     else {
         for (std::size_t i = 0; i < params.size(); ++i) {
             if (i) s += ", ";
-            s += c_type(params[i].type) + " " + std::string(reg_name(params[i].reg));
+            s += param_ctype(params[i], aggregates) + " " + std::string(reg_name(params[i].reg));
         }
     }
     s += ")";
+    return s;
+}
+
+std::string FuncTypes::aggregate_defs() const {
+    std::string s;
+    for (const auto& [reg, ag] : aggregates) {
+        if (ag.is_array) continue;  // arrays render as `T *`, no struct def needed
+        s += "struct " + ag.tag + " {\n";
+        for (const auto& f : ag.fields) {
+            char off[24];
+            std::snprintf(off, sizeof off, "%llx", (unsigned long long)f.offset);
+            s += "    " + c_type({f.is_pointer ? TClass::Pointer : TClass::Integer, f.width, f.sign}) +
+                 " field_" + off + ";  // +0x" + off + "\n";
+        }
+        s += "};\n";
+    }
     return s;
 }
 

@@ -214,6 +214,23 @@ struct Folder {
     std::map<Flag, ExprP> flags;
     std::map<Reg, bool> written;
     std::map<std::string, types::LType> stack_vars;  // recovered named locals
+    const std::map<Reg, types::Aggregate>* aggs = nullptr;  // recovered struct/array ptrs
+
+    // Render a dereference through a recovered struct pointer as `base->field_<off>`
+    // (so `*(uint64_t *)(rdi + 8)` becomes `rdi->field_8`).
+    std::optional<std::string> field_name(const ExprP& addr) const {
+        if (!aggs) return std::nullopt;
+        Reg base; long long off;
+        if (addr->k == Expr::K::Reg) { base = addr->reg; off = 0; }
+        else if (addr->k == Expr::K::Binary && addr->op == Op::Add && addr->a->k == Expr::K::Reg &&
+                 addr->b->k == Expr::K::Const) { base = addr->a->reg; off = addr->b->cval; }
+        else return std::nullopt;
+        auto it = aggs->find(base);
+        if (it == aggs->end() || it->second.is_array || !it->second.field_at(off)) return std::nullopt;
+        char b[48];
+        std::snprintf(b, sizeof b, "%s->field_%llx", std::string(reg_name(base)).c_str(), (unsigned long long)off);
+        return std::string(b);
+    }
 
     // Parallel symbolic-value track used ONLY to recognise multi-statement
     // idioms (bitfield reads) and collapse them. Unlike `regs`/`temp`, these
@@ -350,6 +367,8 @@ struct Folder {
                             Expr e; e.k = Expr::K::Var; e.text = *nm; e.size = in.out.size;
                             le = mk(e);
                             stack_vars[*nm] = {types::TClass::Integer, in.out.size, types::Sign::Unknown};
+                        } else if (auto fn = field_name(a)) {  // struct field access
+                            Expr e; e.k = Expr::K::Var; e.text = *fn; e.size = in.out.size; le = mk(e);
                         } else {
                             Expr e; e.k = Expr::K::Load; e.a = a; e.size = in.out.size; le = mk(e);
                         }
@@ -362,6 +381,8 @@ struct Folder {
                     if (auto nm = slot_name(a)) {
                         out.stmts.push_back(*nm + " = " + print(of(in.b)) + ";");
                         stack_vars[*nm] = {types::TClass::Integer, in.b.size, types::Sign::Unknown};
+                    } else if (auto fn = field_name(a)) {  // struct field store
+                        out.stmts.push_back(*fn + " = " + print(of(in.b)) + ";");
                     } else {
                         out.stmts.push_back("*(uint" + std::to_string(in.b.size * 8) + "_t *)(" + print(a) + ") = " + print(of(in.b)) + ";");
                     }
@@ -483,6 +504,7 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         nodes.push_back(bb.start);
         ir::Block ib = ir::lift_block(bb);
         Folder f;
+        f.aggs = &ft.aggregates;  // render struct-pointer derefs as field accesses
         BlockOut bo = f.run(ib);
         for (const auto& [r, w] : f.written) if (w) written_regs.insert(r);
         for (const auto& [nm, t] : f.stack_vars) stack_vars[nm] = t;
@@ -647,8 +669,10 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         seen.insert(n);
     }
 
-    // assemble: typed signature + local declarations + body
+    // assemble: recovered aggregate defs + typed signature + local declarations + body
     std::ostringstream os;
+    std::string aggs = ft.aggregate_defs();
+    if (!aggs.empty()) os << aggs << "\n";
     os << ft.signature() << " {\n";
     std::set<Reg> param_regs;
     for (const auto& p : ft.params) param_regs.insert(p.reg);

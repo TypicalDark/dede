@@ -121,6 +121,19 @@ TEST("decompiler reconstructs a bitfield read as a BITFIELD intrinsic") {
     CHECK(!has(c, ">> 3"));                // the shift/mask feeder statements were removed
 }
 
+TEST("decompiler recovers a struct from pointer dereferences") {
+    // mov rax,[rdi]; mov rcx,[rdi+8]; add rax,rcx; mov [rdi+0x10],rax; ret
+    std::string c = decompile_bytes({0x48,0x8B,0x07, 0x48,0x8B,0x4F,0x08, 0x48,0x01,0xC8,
+                                     0x48,0x89,0x47,0x10, 0xC3});
+    CHECK(has(c, "struct s_rdi {"));          // aggregate definition emitted
+    CHECK(has(c, "field_0"));                 // fields at the observed offsets
+    CHECK(has(c, "field_8"));
+    CHECK(has(c, "field_10"));
+    CHECK(has(c, "struct s_rdi * rdi"));      // param typed as the struct pointer
+    CHECK(has(c, "rdi->field_0"));            // dereference rendered as field access
+    CHECK(has(c, "rdi->field_10 = rax"));     // store through the pointer too
+}
+
 TEST("decompiler leaves a single-bit test as a bit-test, not a bitfield") {
     // mov rax,rdi; shr rax,5; and rax,1; ret  -> a 1-bit extract stays `& 1`.
     std::string c = decompile_bytes({0x48, 0x89, 0xF8, 0x48, 0xC1, 0xE8, 0x05,

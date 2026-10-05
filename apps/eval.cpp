@@ -177,8 +177,19 @@ void run_dynamic_checks() {
         bool ptr = ft.regs[Reg::Rdi].cls == types::TClass::Pointer;
         bool sig = ft.params.size() >= 2;
         bool sign = ft.regs[Reg::Rsi].sign == types::Sign::Signed;
-        rec(17,'B',"Type inference / struct recovery", ptr ? V::PARTIAL : V::FAIL,
-            "constraint lattice infers scalar width/sign + pointer-ness intra-function; struct recovery is a later milestone");
+        // struct recovery: a pointer dereferenced at several offsets -> a struct.
+        std::vector<u8> sc = {0x48,0x8B,0x07, 0x48,0x8B,0x4F,0x08, 0x48,0x01,0xC8, 0x48,0x89,0x47,0x10, 0xC3};
+        ByteReader scrd = [&sc](Addr a) -> std::optional<u8> {
+            if (a >= 0x1000 && a < 0x1000 + sc.size()) return sc[a - 0x1000];
+            return std::nullopt;
+        };
+        auto sft = types::infer_function(*dis, scrd, 0x1000);
+        auto ai = sft.aggregates.find(Reg::Rdi);
+        bool struct_ok = ai != sft.aggregates.end() && !ai->second.is_array && ai->second.fields.size() >= 3;
+        rec(17,'B',"Type inference / struct recovery", (ptr && struct_ok) ? V::PARTIAL : (ptr ? V::PARTIAL : V::FAIL),
+            "constraint lattice infers scalar width/sign + pointer-ness; multi-offset pointer "
+            "dereferences are clustered into a struct layout (fields rendered as ptr->field_N); "
+            "nested/recursive + cross-function aggregates remain future work");
         rec(23,'B',"Function signature inference", sig ? V::PARTIAL : V::FAIL,
             "live-in SysV argument registers -> typed parameters + return type");
         rec(25,'B',"Implicit cast detection", (ptr || sign) ? V::PARTIAL : V::FAIL,

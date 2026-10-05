@@ -49,6 +49,38 @@ TEST("movzx pins unsigned, movsx pins signed") {
     CHECK(s.regs[Reg::Rax].sign == Sign::Signed);
 }
 
+TEST("recovers a struct layout from multi-offset pointer dereferences") {
+    // mov rax,[rdi]; mov rcx,[rdi+8]; add rax,rcx; mov [rdi+0x10],rax; ret
+    FuncTypes ft = infer({0x48,0x8B,0x07, 0x48,0x8B,0x4F,0x08, 0x48,0x01,0xC8,
+                          0x48,0x89,0x47,0x10, 0xC3});
+    auto it = ft.aggregates.find(Reg::Rdi);
+    CHECK(it != ft.aggregates.end());          // an aggregate was recovered for rdi
+    CHECK(!it->second.is_array);
+    CHECK_EQ(it->second.fields.size(), 3u);    // fields at +0, +8, +0x10
+    CHECK(it->second.field_at(0) != nullptr);
+    CHECK(it->second.field_at(8) != nullptr);
+    CHECK(it->second.field_at(0x10) != nullptr);
+    // signature + defs reflect the struct
+    CHECK(ft.signature().find("struct s_rdi * rdi") != std::string::npos);
+    CHECK(ft.aggregate_defs().find("struct s_rdi {") != std::string::npos);
+}
+
+TEST("a single *p dereference is not promoted to a struct") {
+    // mov rax,[rdi]; ret   -> just a pointer, no aggregate
+    FuncTypes ft = infer({0x48, 0x8B, 0x07, 0xC3});
+    CHECK(ft.aggregates.find(Reg::Rdi) == ft.aggregates.end());
+    CHECK(ft.signature().find("void * rdi") != std::string::npos);
+}
+
+TEST("recovers an array from indexed dereference") {
+    // mov rax,[rdi+rsi*8]; ret   -> rdi is an array (stride 8)
+    FuncTypes ft = infer({0x48, 0x8B, 0x04, 0xF7, 0xC3});
+    auto it = ft.aggregates.find(Reg::Rdi);
+    CHECK(it != ft.aggregates.end());
+    CHECK(it->second.is_array);
+    CHECK_EQ(it->second.stride, 8u);
+}
+
 TEST("a leaf function with no args has a void parameter list") {
     // mov rax, 0x2a ; ret
     FuncTypes ft = infer({0x48, 0xC7, 0xC0, 0x2A, 0, 0, 0, 0xC3});
