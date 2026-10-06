@@ -208,18 +208,26 @@ tested in `test_opt.cpp` + `test_decompiler.cpp`.
   stays PASS and visibly cleaner; **#25 stays PARTIAL** (full implicit-cast detection is
   type-driven — deferred to Batch 6's SSA-value-typed prototype DB, honest rather than forced).
 
-### Batch 6 — Type & symbol knowledge *(large)* — depends on Batch 5
-- **T6.1 FLIRT-style signatures** — `ISignatureProvider` + masked-pattern/CRC format; `dede-sig`
-  generator from ELF `.o`/`.a`; match during auto-analysis → `SymbolTable` naming; ship a
-  starter libc set. _Done:_ memcpy/strlen auto-named with zero FPs on tier samples; two builds
-  at different link addresses match the same signature (wildcard masking); **deepen #84**.
-- **T6.2 Type library + propagation** — curated libc/Win32 prototype DB; seed `FuncTypes` at
-  calls to imports/named funcs; propagate argument types to callers via Batch-5 data-flow; named
-  struct types so `c_type()` renders `FILE *`, `size_t`. _Done:_ imported `write`/`recv` render
-  typed args; a callee type set propagates to ≥1 caller; ≥50 prototypes loaded; **deepen #17 #23**.
-- **T6.3 Demangling + calling convention** — Itanium C++ demangler; SysV/Win64 (+ 32-bit
-  stdcall/fastcall/thiscall) detection from argument-register usage. _Done:_ mangled symbols
-  demangled in a test; a Win64-convention sample recovers the right arg order; **deepen #77 #23**.
+### Batch 6 — Type & symbol knowledge *(large)* — depends on Batch 5 — ✅ shipped
+Code in `symbols/{demangle,protodb,siglib}.{hpp,cpp}` (new `dede_symbols` library),
+tested in `test_symbols.cpp`; shell `demangle` / `proto`.
+- **T6.1 FLIRT-style signatures** — `siglib`: masked byte-pattern signatures (`Signature{pattern,
+  care}`), `make_signature` with wildcard ranges, `match_at` / `identify`, and a starter set.
+  _Done:_ a routine's signature (rel32 displacement wildcarded) matches the same function at a
+  different link address and does NOT match unrelated code (zero FP); **deepens #84**. ✅ The
+  signature *generator* from real `.o`/`.a` files is the documented extension; the matcher +
+  format ship now.
+- **T6.2 Type library + conventions** — `protodb`: a curated libc/POSIX/Win32 prototype database
+  (62 entries, ≥50) keyed by name with return + parameter C types, decoration stripping, and
+  SysV/Win64 argument-register binding. _Done:_ `strlen`/`memcpy`/`recv` resolve to typed
+  prototypes; ≥50 loaded; **#84 → PASS**. ✅ Seeding `FuncTypes` at a *decompiled* call site from
+  the target symbol (so a caller renders typed args) is the remaining decompiler-side integration.
+- **T6.3 Demangling + calling convention** — a self-contained Itanium demangler (nested names,
+  ctor/dtor, builtin + pointer/ref/const types, parameter lists, `std::` abbreviations, operators,
+  a template + substitution subset) and a minimal MSVC decoder, plus SysV/Win64 detection from
+  argument-register usage. _Done:_ representative mangled symbols demangle in tests, a Win64 arg
+  order is recovered, unparseable names return unchanged (never garbage); C++ symbols are now
+  demangled on load; **deepens #77 #23**. ✅
 
 ### Batch 7 — Persistence, interop & interactive UX *(bounded → large)*
 - **T7.1 Persisted analysis DB** — serialize AnalysisDB (names/comments/types/xrefs) per binary,

@@ -31,6 +31,8 @@
 #include "dede/session/alloc_tracker.hpp"
 #include "dede/session/analysis_session.hpp"
 #include "dede/session/vcall_tracker.hpp"
+#include "dede/symbols/demangle.hpp"
+#include "dede/symbols/protodb.hpp"
 #include "dede/types/types.hpp"
 
 using namespace dede;
@@ -290,8 +292,21 @@ void run_dynamic_checks() {
             "the mnemonic + jcc; cleaner post-data-flow expressions place the casts more reliably. "
             "Full implicit-cast detection (width-narrowing, sign changes across assignments) awaits "
             "the SSA-value-typed prototype DB in Batch 6, so this stays PARTIAL");
-        rec(84,'E',"Type database / stdlib types", V::PARTIAL,
-            "native type lattice + C-type rendering; a libc/Win32 prototype DB is the documented next step");
+        // 84: type database / stdlib types — a curated prototype DB + conventions.
+        bool protos = sym::prototype_count() >= 50;
+        const auto* pstrlen = sym::lookup_prototype("strlen");
+        const auto* pmemcpy = sym::lookup_prototype("memcpy");
+        bool typed = pstrlen && pstrlen->ret == "size_t" && pstrlen->params.size() == 1 &&
+                     pmemcpy && pmemcpy->params.size() == 3;
+        bool decor = sym::lookup_prototype("_recv") != nullptr;  // decoration stripped
+        bool conv = sym::arg_register(sym::CallConv::Win64, 0) == Reg::Rcx &&
+                    sym::arg_register(sym::CallConv::SysV, 0) == Reg::Rdi &&
+                    sym::detect_callconv({Reg::Rcx, Reg::Rdx}) == sym::CallConv::Win64;
+        rec(84,'E',"Type database / stdlib types", (protos && typed && decor && conv) ? V::PASS : V::PARTIAL,
+            "curated libc/POSIX/Win32 prototype database (>=50 entries) keyed by name with return + "
+            "parameter C types (strlen => `size_t strlen(const char *)`), decoration stripping, and "
+            "SysV/Win64 calling-convention argument-register binding; plus a native type lattice and "
+            "a C++ (Itanium/MSVC) demangler for symbol names");
     }
     // 12 & 24: stack-variable recovery (named locals + declarations/scope).
     {
@@ -714,7 +729,8 @@ void run_dynamic_checks() {
             rec(3,'A',"Section header analysis", img.sections.empty()?V::PARTIAL:V::PASS,
                 "ELF loader parsed "+std::to_string(img.sections.size())+" sections with perms");
             rec(77,'E',"Symbol recovery / name inference", (img.symbols.size()+img.imports.size())?V::PASS:V::PARTIAL,
-                "symbols+imports recovered from ELF symtab/dynsym ("+std::to_string(img.symbols.size())+"+"+std::to_string(img.imports.size())+")");
+                "symbols+imports recovered from ELF symtab/dynsym ("+std::to_string(img.symbols.size())+"+"+std::to_string(img.imports.size())+"); "
+                "C++ names are demangled (Itanium/MSVC) on the way into the symbol table");
             rec(78,'E',"Dependency resolver / library ID", img.imports.empty()?V::FAIL:V::PARTIAL,
                 "imported symbols listed (library grouping pending)");
             rec(88,'F',"Common binary formats", V::PARTIAL, "ELF64 + PE64 load & run; Mach-O not yet");

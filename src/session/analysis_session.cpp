@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "dede/session/analysis_session.hpp"
+#include "dede/symbols/demangle.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -49,7 +50,9 @@ Result<void> AnalysisSession::load_image(const LoadedImage& img) {
     core_.memory().map(kStackTop - 0x20000, 0x20000, perm::RW);
     core_.cpu().set(Reg::Rsp, kStackTop - 0x1000);
 
-    for (const auto& s : img.symbols) symbols_.add(s.addr, s.name);
+    // Demangle C++ symbol names on the way into the table so every view
+    // (disassembly, stack, CFG) shows readable names.
+    for (const auto& s : img.symbols) symbols_.add(s.addr, sym::demangle(s.name));
     format_ = img.format;
     imports_ = img.imports;
     sections_ = img.sections;

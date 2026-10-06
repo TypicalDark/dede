@@ -92,13 +92,15 @@ dede_library(dede_samples SRCS src/samples/tiers.cpp DEPS dede_common)
 dede_library(dede_introspection SRCS src/introspection/introspector.cpp DEPS dede_common)
 
 dede_library(dede_loader SRCS src/loader/loader.cpp DEPS dede_common)
+
+dede_library(dede_symbols SRCS src/symbols/demangle.cpp src/symbols/protodb.cpp src/symbols/siglib.cpp DEPS dede_analysis)
 if(DEDE_WITH_LIBVMI)
   target_compile_definitions(dede_introspection PUBLIC DEDE_WITH_LIBVMI)
 endif()
 
 dede_library(dede_session
   SRCS src/session/session_state.cpp src/session/analysis_session.cpp src/session/capture.cpp
-  DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection dede_analysis dede_loader)
+  DEPS dede_core dede_replay dede_transparency dede_macro dede_decompiler dede_introspection dede_analysis dede_loader dede_symbols)
 
 dede_library(dede_script
   SRCS src/script/null_engine.cpp src/script/luau_engine.cpp
@@ -107,7 +109,7 @@ if(DEDE_WITH_LUAU)
   target_compile_definitions(dede_script PUBLIC DEDE_WITH_LUAU)
 endif()
 
-dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script dede_analysis dede_loader)
+dede_library(dede_shell SRCS src/shell/shell.cpp DEPS dede_session dede_script dede_analysis dede_loader dede_symbols)
 
 # --- modular UI kernel (headless, backend-agnostic) --------------------------
 # git-tool-style architecture: a contribution Registry + reactive Context +
@@ -169,7 +171,7 @@ add_executable(dede-bench apps/bench.cpp)
 target_link_libraries(dede-bench PRIVATE dede_session)
 
 add_executable(dede-eval apps/eval.cpp)
-target_link_libraries(dede-eval PRIVATE dede_session dede_analysis dede_loader)
+target_link_libraries(dede-eval PRIVATE dede_session dede_analysis dede_loader dede_symbols)
 
 add_executable(dede-forge apps/forge.cpp)
 target_link_libraries(dede-forge PRIVATE dede_samples)
@@ -182,7 +184,7 @@ target_link_libraries(dede-shot PRIVATE dede_ui dede_ui_modules dede_session ded
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir test_opt test_decompiler test_types)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir test_opt test_decompiler test_types test_symbols)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)
@@ -196,5 +198,6 @@ if(DEDE_BUILD_TESTS)
   target_link_libraries(test_opt PRIVATE dede_ir)
   target_link_libraries(test_decompiler PRIVATE dede_samples)
   target_link_libraries(test_types PRIVATE dede_types)
+  target_link_libraries(test_symbols PRIVATE dede_symbols)
   add_test(NAME effectiveness COMMAND dede-eval ${CMAKE_BINARY_DIR}/effectiveness-report.md)
 endif()

@@ -13,6 +13,8 @@
 #include "dede/analysis/recover.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
+#include "dede/symbols/demangle.hpp"
+#include "dede/symbols/protodb.hpp"
 #include "dede/loader/loader.hpp"
 
 namespace dede {
@@ -165,6 +167,8 @@ bool Shell::execute(const std::string& line) {
             "  stackstrings | obf       detect xor-decrypt loops (compile-time string obfuscation)\n"
             "  clones [window]          cluster inlined/cloned code fragments across functions\n"
             "  vtables | vtable         scan for C++ vtables (code-pointer runs + Itanium RTTI name)\n"
+            "  demangle <name>          demangle a C++ (Itanium/MSVC) symbol name\n"
+            "  proto <name>             show the library prototype for a function name\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -626,6 +630,15 @@ bool Shell::execute(const std::string& line) {
             }
         }
         out_ << n << " vtable(s)\n";
+        return true;
+    }
+    if (cmd == "demangle" && tok.size() >= 2) {
+        out_ << sym::demangle(tok[1]) << "\n";
+        return true;
+    }
+    if (cmd == "proto" && tok.size() >= 2) {
+        if (const auto* p = sym::lookup_prototype(tok[1])) out_ << sym::declaration(*p) << "\n";
+        else out_ << "no prototype for " << tok[1] << " (" << sym::prototype_count() << " known)\n";
         return true;
     }
     if (cmd == "seh" || cmd == "exceptions") {
