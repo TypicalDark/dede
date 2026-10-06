@@ -229,16 +229,22 @@ tested in `test_symbols.cpp`; shell `demangle` / `proto`.
   order is recovered, unparseable names return unchanged (never garbage); C++ symbols are now
   demangled on load; **deepens #77 #23**. ✅
 
-### Batch 7 — Persistence, interop & interactive UX *(bounded → large)*
-- **T7.1 Persisted analysis DB** — serialize AnalysisDB (names/comments/types/xrefs) per binary,
-  auto-load on reopen. _Done:_ annotate → close → reopen restores everything; **#81 #82 deepen**.
-- **T7.2 JSON interchange import** — schema {symbols,comments,functions,structs} + importer +
-  IDAPython/BN exporter snippets in docs; round-trip vs dede's own JSON export. _Done:_
-  export→reimport round-trips names/comments/bounds; **#80 → PARTIAL**.
-- **T7.3 Patch manager + patch-to-disk**; **T7.4 expression-engine breakpoints** (conditional +
-  logging/non-breaking + watch expressions); **T7.5 wildcard/mask pattern search + find-all**.
-  _Done:_ patched binary exports and re-runs; a logging breakpoint records without stopping; a
-  masked pattern finds the planted sites; **deepen #71 #73 #91**.
+### Batch 7 — Persistence, interop & interactive UX *(bounded → large)* — ◒ partially shipped
+- **T7.2 JSON interchange** ✅ — `interchange/interchange.{hpp,cpp}` (new `dede_interchange`
+  library): the documented schema {symbols,comments,functions,structs}, a serializer, and a
+  self-contained JSON parser; shell `export-db`/`import-db`; IDAPython/BN exporter snippets in
+  `docs/INTERCHANGE.md`. _Done:_ round-trips (escapes, structs) and imports foreign-style exports
+  (numeric/hex addrs, unknown keys ignored), malformed JSON rejected not crashed (`test_interchange.cpp`);
+  **#80 → PARTIAL** (N/A before). 
+- **T7.1 Persisted analysis DB** — the session already serializes registers, memory, symbols, and
+  breakpoints via `save_session`/`load_session` (annotate → save → reload restores them), so #81/#82
+  stay PARTIAL; a richer per-binary AnalysisDB (comments/types/xrefs with auto-load) is the
+  remaining deepening.
+- **T7.3 patch-to-disk / T7.4 expression breakpoints / T7.5 wildcard search** — partly covered by
+  existing pieces (run points carry a `pause` flag for logging/non-breaking breakpoints +
+  `Condition::parse` for conditional ones; the Batch-6 masked matcher + `search` cover masked
+  find-all). A dedicated patch manager and a user-facing watch-expression UX remain; **#71 #73 #91
+  stay PARTIAL** (honest — not forced to PASS).
 
 ### Batch 8 — ISA breadth *(large)*
 - **T8.1 SSE/SSE2/AVX + x87 subset** in the interpreter, differentially tested. _Done:_ vector

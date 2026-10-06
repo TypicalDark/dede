@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iterator>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -13,6 +14,7 @@
 #include "dede/analysis/recover.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
+#include "dede/interchange/interchange.hpp"
 #include "dede/symbols/demangle.hpp"
 #include "dede/symbols/protodb.hpp"
 #include "dede/loader/loader.hpp"
@@ -169,6 +171,8 @@ bool Shell::execute(const std::string& line) {
             "  vtables | vtable         scan for C++ vtables (code-pointer runs + Itanium RTTI name)\n"
             "  demangle <name>          demangle a C++ (Itanium/MSVC) symbol name\n"
             "  proto <name>             show the library prototype for a function name\n"
+            "  export-db <path>         write symbols/functions as interchange JSON\n"
+            "  import-db <path>         load symbols/functions from interchange JSON (IDA/BN)\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -630,6 +634,33 @@ bool Shell::execute(const std::string& line) {
             }
         }
         out_ << n << " vtable(s)\n";
+        return true;
+    }
+    if (cmd == "export-db" && tok.size() >= 2) {
+        interchange::AnalysisDoc doc;
+        for (const auto& [addr, name] : s_.symbols().all()) doc.symbols.push_back({addr, name});
+        for (const auto& rg : s_.memory_map())
+            if (rg.perms & perm::X)
+                for (Addr f : discover_functions(s_.arch(), reader, rg.base, rg.base + rg.size, {s_.rip()})) {
+                    const std::string* nm = s_.symbols().at(f);
+                    doc.functions.push_back({f, nm ? *nm : ("sub_" + hex(f)), 0});
+                }
+        std::ofstream out(tok[1]);
+        if (!out) { out_ << "cannot write " << tok[1] << "\n"; return true; }
+        out << interchange::to_json(doc);
+        out_ << "exported " << doc.symbols.size() << " symbol(s), " << doc.functions.size() << " function(s) to " << tok[1] << "\n";
+        return true;
+    }
+    if (cmd == "import-db" && tok.size() >= 2) {
+        std::ifstream in(tok[1]);
+        if (!in) { out_ << "cannot read " << tok[1] << "\n"; return true; }
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        auto doc = interchange::parse_json(text);
+        if (!doc) { out_ << "malformed interchange JSON\n"; return true; }
+        for (const auto& s : doc->symbols) s_.symbols().add(s.addr, s.name);
+        for (const auto& f : doc->functions) if (!f.name.empty()) s_.symbols().add(f.addr, f.name);
+        out_ << "imported " << doc->symbols.size() << " symbol(s), " << doc->functions.size()
+             << " function(s), " << doc->comments.size() << " comment(s)\n";
         return true;
     }
     if (cmd == "demangle" && tok.size() >= 2) {

@@ -23,6 +23,7 @@
 
 #include "dede/analysis/callstack.hpp"
 #include "dede/analysis/recover.hpp"
+#include "dede/interchange/interchange.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
 #include "dede/disasm/disassembler.hpp"
@@ -821,7 +822,24 @@ int main(int argc, char** argv) {
     rec(72,'E',"Batch processing", V::PASS, "CLI loads files; stdin-scriptable; this harness is batch over the engine");
     rec(73,'E',"Custom detection rules", V::PARTIAL, "pluggable C++ IDetector framework; user-facing rule DSL pending");
     rec(74,'E',"Graph query language", V::PARTIAL, "CFG/call-graph queryable in code; no end-user query DSL");
-    rec(80,'E',"Cross-tool database import (IDA)", V::NA, "no IDB/BNDB import");
+    {
+        // 80: cross-tool interchange via a documented JSON schema (round-trips).
+        interchange::AnalysisDoc d;
+        d.symbols = {{0x401000, "main"}, {0x401040, "helper"}};
+        d.functions = {{0x401000, "main", 0x40}};
+        d.comments = {{0x401004, "entry"}};
+        auto back = interchange::parse_json(interchange::to_json(d));
+        // also accept a foreign-style export (numeric addr, unknown keys)
+        auto foreign = interchange::parse_json(R"({"tool":"ida","symbols":[{"addr":4096,"name":"s"}]})");
+        bool ok = back && back->symbols.size() == 2 && back->symbols[1].name == "helper" &&
+                  back->functions.size() == 1 && foreign && foreign->symbols.size() == 1 &&
+                  foreign->symbols[0].addr == 4096;
+        rec(80,'E',"Cross-tool database import (IDA)", ok ? V::PARTIAL : V::FAIL,
+            "no proprietary .idb/.bndb parsing, but a documented JSON interchange schema "
+            "(symbols/comments/functions/structs) round-trips and imports foreign-style exports "
+            "(numeric or hex addrs, unknown keys ignored); shell `import-db`/`export-db`, with "
+            "IDAPython/BN exporter snippets as the documented bridge");
+    }
     rec(81,'E',"Incremental analysis / caching", V::PARTIAL, "Flyweight decode cache; no persisted analysis DB");
     rec(82,'E',"Annotation sync / collaboration", V::PARTIAL, "symbols + comments; no team sync");
     rec(85,'E',"Reporting / documentation generation", V::PASS, "this harness emits a Markdown report; CFG/arch DOT exports");
