@@ -75,6 +75,7 @@ std::string normalize(const DecodedInsn& in) {
             case OpKind::Imm: t += " i"; break;
             case OpKind::Mem: t += " m"; break;
             case OpKind::SegReg: t += " s"; break;
+            case OpKind::Xmm: t += " x"; break;
             case OpKind::None: t += " _"; break;
         }
     }

@@ -186,7 +186,7 @@ target_link_libraries(dede-shot PRIVATE dede_ui dede_ui_modules dede_session ded
 # --- tests -------------------------------------------------------------------
 if(DEDE_BUILD_TESTS)
   enable_testing()
-  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir test_opt test_decompiler test_types test_symbols test_interchange)
+  foreach(t test_memory test_disasm test_core test_timeline test_macro test_transparency test_integration test_antidetect test_qol test_cfg test_regress test_capture test_tiers test_loader test_ui test_ir test_opt test_decompiler test_types test_symbols test_interchange test_sse)
     add_executable(${t} tests/${t}.cpp)
     target_include_directories(${t} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
     target_link_libraries(${t} PRIVATE dede_session)

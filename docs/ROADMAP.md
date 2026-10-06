@@ -246,12 +246,18 @@ tested in `test_symbols.cpp`; shell `demangle` / `proto`.
   find-all). A dedicated patch manager and a user-facing watch-expression UX remain; **#71 #73 #91
   stay PARTIAL** (honest — not forced to PASS).
 
-### Batch 8 — ISA breadth *(large)*
-- **T8.1 SSE/SSE2/AVX + x87 subset** in the interpreter, differentially tested. _Done:_ vector
-  + FPU test vectors evaluate bit-identically; a float-using sample runs; **deepen #89**.
-- **T8.2 (stretch) IA-32 mode** — 32-bit decode/semantics + PE32/IAT + `fs`/`gs` segment access
-  + SEH chain. _Done:_ a 32-bit sample runs and unwinds its SEH chain. _(Large; nearest the
-  out-of-scope line — gated behind explicit demand.)_
+### Batch 8 — ISA breadth *(large)* — ◒ partially shipped
+- **T8.1 SSE/SSE2 subset** ✅ — an xmm register file on `CpuState`, xmm operands surfaced by the
+  Capstone adapter (`OpKind::Xmm`), and an interpreter SSE dispatch: scalar + packed single/double
+  arithmetic (add/sub/mul/div, min/max, sqrt), 128-bit moves (movaps/movups/movdqa/movdqu), scalar
+  moves (movsd/movss/movq/movd with the correct upper-bits semantics), packed-integer add/sub
+  (b/w/d/q), bitwise (pxor/pand/por/…), int↔float conversions (cvtsi2sd/cvttsd2si/…), and
+  ordered/unordered compare (ucomisd/comiss → EFLAGS). _Done:_ every form evaluates bit-identically
+  to hand-computed float/vector results and a float sample round-trips through memory
+  (`test_sse.cpp`); **#89 deepened** (stays PARTIAL — still single-arch). x87 and AVX (256-bit) are
+  the documented extensions.
+- **T8.2 (stretch) IA-32 mode** — deferred (gated behind explicit demand; nearest the
+  out-of-scope line, per the original plan).
 
 ### Batch 9 — OS user-mode environment / emulation sandbox *(large · the behavioral-analysis milestone)*
 Execute **Windows and Linux** user-mode binaries (notably malware) by modeling the OS API/

@@ -13,6 +13,9 @@
 // anti-analysis (cpuid/rdtsc), plus nop/hlt/syscall/int3. Anything else stops
 // the core cleanly with an Unsupported event rather than silently misbehaving.
 #include <array>
+#include <bit>
+#include <cmath>
+#include <cstring>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -173,6 +176,33 @@ private:
             }
             default: return make_error("write_op: not an lvalue");
         }
+    }
+
+    // --- SSE/SSE2 helpers ----------------------------------------------------
+    using Xmm = CpuState::Xmm;
+    Result<Xmm> read_xmm(Exec& e, const Operand& op) {
+        if (op.kind == OpKind::Xmm) return e.cpu.get_xmm(op.xmm);
+        if (op.kind == OpKind::Mem) {
+            auto a = effective_addr(e, op.mem);
+            if (!a) return a.error();
+            auto lo = e.mem.read(a.value(), 8);
+            if (!lo) return lo.error();
+            Xmm x; x.lo = lo.value();
+            if (auto hi = e.mem.read(a.value() + 8, 8)) x.hi = hi.value();  // 16-byte region if mapped
+            return x;
+        }
+        return make_error("read_xmm: bad operand");
+    }
+    Result<void> write_xmm(Exec& e, const Operand& op, Xmm v, unsigned bytes = 16) {
+        if (op.kind == OpKind::Xmm) { e.cpu.set_xmm(op.xmm, v); return {}; }
+        if (op.kind == OpKind::Mem) {
+            auto a = effective_addr(e, op.mem);
+            if (!a) return a.error();
+            if (auto r = e.mem.write(a.value(), 8, v.lo); !r) return r;
+            if (bytes > 8) return e.mem.write(a.value() + 8, 8, v.hi);
+            return Result<void>{};
+        }
+        return make_error("write_xmm: not an lvalue");
     }
 
     // --- stack helpers -------------------------------------------------------
@@ -413,7 +443,218 @@ private:
             return ok();
         }
 
+        if (auto r = sse(e)) return *r;  // SSE/SSE2 subset
+
         return unsupported(e.sink, e.in.addr, e.tick, "unsupported mnemonic: " + e.in.text());
+    }
+
+    // --- SSE/SSE2 subset -----------------------------------------------------
+    // Scalar + packed single/double float math, 128-bit moves, packed-integer
+    // add/sub, bitwise, int<->float conversions, and ordered/unordered compare
+    // (sets EFLAGS like ucomisd). Returns nullopt for a non-SSE mnemonic.
+    std::optional<StepOutcome> sse(Exec& e) {
+        const std::string& m = e.in.mnemonic;
+        auto& ops = e.in.operands;
+        auto fault_ = [&](const std::string& w) { return fault(e.sink, e.in.addr, e.tick, w); };
+        auto d2u = [](double d) { return std::bit_cast<u64>(d); };
+        auto u2d = [](u64 u) { return std::bit_cast<double>(u); };
+        auto f2u = [](float f) { u32 x; std::memcpy(&x, &f, 4); return x; };
+        auto u2f = [](u32 u) { float f; std::memcpy(&f, &u, 4); return f; };
+
+        // 128-bit / integer-vector moves and bitwise ops.
+        auto mov128 = [&]() -> std::optional<StepOutcome> {
+            auto s = read_xmm(e, ops.at(1));
+            if (!s) return fault_(s.message());
+            if (auto r = write_xmm(e, ops.at(0), s.value()); !r) return fault_(r.message());
+            return ok();
+        };
+        if (m == "movaps" || m == "movups" || m == "movdqa" || m == "movdqu" ||
+            m == "movapd" || m == "movupd")
+            return mov128();
+        auto bitwise = [&](auto fn) -> std::optional<StepOutcome> {
+            auto a = read_xmm(e, ops.at(0)), b = read_xmm(e, ops.at(1));
+            if (!a) return fault_(a.message());
+            if (!b) return fault_(b.message());
+            Xmm r{fn(a.value().lo, b.value().lo), fn(a.value().hi, b.value().hi)};
+            if (auto w = write_xmm(e, ops.at(0), r); !w) return fault_(w.message());
+            return ok();
+        };
+        if (m == "pxor" || m == "xorps" || m == "xorpd") return bitwise([](u64 x, u64 y) { return x ^ y; });
+        if (m == "pand" || m == "andps" || m == "andpd") return bitwise([](u64 x, u64 y) { return x & y; });
+        if (m == "por"  || m == "orps"  || m == "orpd")  return bitwise([](u64 x, u64 y) { return x | y; });
+
+        // movsd/movss scalar moves (mem load zero-extends the register's upper bits).
+        if (m == "movsd" && ops.size() == 2 && (ops[0].kind == OpKind::Xmm || ops[1].kind == OpKind::Xmm)) {
+            auto s = read_xmm(e, ops[1]);
+            if (!s) return fault_(s.message());
+            if (ops[0].kind == OpKind::Xmm) {
+                Xmm d = e.cpu.get_xmm(ops[0].xmm);
+                d.lo = s.value().lo;
+                if (ops[1].kind == OpKind::Mem) d.hi = 0;  // load clears the upper quadword
+                e.cpu.set_xmm(ops[0].xmm, d);
+            } else {
+                if (auto w = write_xmm(e, ops[0], s.value(), 8); !w) return fault_(w.message());
+            }
+            return ok();
+        }
+        if (m == "movss" && ops.size() == 2) {
+            auto s = read_xmm(e, ops[1]);
+            if (!s) return fault_(s.message());
+            if (ops[0].kind == OpKind::Xmm) {
+                Xmm d = e.cpu.get_xmm(ops[0].xmm);
+                d.lo = (d.lo & 0xffffffff00000000ull) | (s.value().lo & 0xffffffffull);
+                if (ops[1].kind == OpKind::Mem) { d.lo &= 0xffffffffull; d.hi = 0; }
+                e.cpu.set_xmm(ops[0].xmm, d);
+            } else {
+                auto a = effective_addr(e, ops[0].mem);
+                if (!a) return fault_(a.message());
+                if (auto w = e.mem.write(a.value(), 4, s.value().lo & 0xffffffffull); !w) return fault_(w.message());
+            }
+            return ok();
+        }
+        // movq/movd between xmm and GPR/mem.
+        if (m == "movq" && ops.size() == 2 && (ops[0].kind == OpKind::Xmm || ops[1].kind == OpKind::Xmm)) {
+            if (ops[0].kind == OpKind::Xmm && ops[1].kind == OpKind::Xmm) {  // low 64 copied, upper zeroed
+                e.cpu.set_xmm(ops[0].xmm, Xmm{e.cpu.get_xmm(ops[1].xmm).lo, 0});
+                return ok();
+            }
+            if (ops[0].kind == OpKind::Xmm) {  // movq xmm, r/m64
+                auto v = read_op(e, ops[1]);
+                if (!v) return fault_(v.message());
+                e.cpu.set_xmm(ops[0].xmm, Xmm{v.value(), 0});
+            } else {                            // movq r/m64, xmm
+                if (auto w = write_op(e, ops[0], e.cpu.get_xmm(ops[1].xmm).lo); !w) return fault_(w.message());
+            }
+            return ok();
+        }
+        if (m == "movd" && ops.size() == 2 && (ops[0].kind == OpKind::Xmm || ops[1].kind == OpKind::Xmm)) {
+            if (ops[0].kind == OpKind::Xmm) { auto v = read_op(e, ops[1]); if (!v) return fault_(v.message()); e.cpu.set_xmm(ops[0].xmm, Xmm{v.value() & 0xffffffffull, 0}); }
+            else { if (auto w = write_op(e, ops[0], e.cpu.get_xmm(ops[1].xmm).lo & 0xffffffffull); !w) return fault_(w.message()); }
+            return ok();
+        }
+
+        // scalar double arithmetic: op xmm, xmm/m64 (low 64 only, upper preserved).
+        auto scalar_d = [&](auto fn) -> std::optional<StepOutcome> {
+            auto b = read_xmm(e, ops.at(1));
+            if (!b) return fault_(b.message());
+            Xmm d = e.cpu.get_xmm(ops.at(0).xmm);
+            d.lo = d2u(fn(u2d(d.lo), u2d(b.value().lo)));
+            e.cpu.set_xmm(ops[0].xmm, d);
+            return ok();
+        };
+        if (m == "addsd") return scalar_d([](double a, double b) { return a + b; });
+        if (m == "subsd") return scalar_d([](double a, double b) { return a - b; });
+        if (m == "mulsd") return scalar_d([](double a, double b) { return a * b; });
+        if (m == "divsd") return scalar_d([](double a, double b) { return a / b; });
+        if (m == "minsd") return scalar_d([](double a, double b) { return a < b ? a : b; });
+        if (m == "maxsd") return scalar_d([](double a, double b) { return a > b ? a : b; });
+        if (m == "sqrtsd") { auto b = read_xmm(e, ops.at(1)); if (!b) return fault_(b.message()); Xmm d = e.cpu.get_xmm(ops.at(0).xmm); d.lo = d2u(std::sqrt(u2d(b.value().lo))); e.cpu.set_xmm(ops[0].xmm, d); return ok(); }
+
+        // scalar single arithmetic (low 32 only).
+        auto scalar_s = [&](auto fn) -> std::optional<StepOutcome> {
+            auto b = read_xmm(e, ops.at(1));
+            if (!b) return fault_(b.message());
+            Xmm d = e.cpu.get_xmm(ops.at(0).xmm);
+            float r = fn(u2f((u32)d.lo), u2f((u32)b.value().lo));
+            d.lo = (d.lo & 0xffffffff00000000ull) | f2u(r);
+            e.cpu.set_xmm(ops[0].xmm, d);
+            return ok();
+        };
+        if (m == "addss") return scalar_s([](float a, float b) { return a + b; });
+        if (m == "subss") return scalar_s([](float a, float b) { return a - b; });
+        if (m == "mulss") return scalar_s([](float a, float b) { return a * b; });
+        if (m == "divss") return scalar_s([](float a, float b) { return a / b; });
+
+        // packed double (2 lanes) and packed single (4 lanes).
+        auto packed_d = [&](auto fn) -> std::optional<StepOutcome> {
+            auto a = read_xmm(e, ops.at(0)), b = read_xmm(e, ops.at(1));
+            if (!a) return fault_(a.message());
+            if (!b) return fault_(b.message());
+            Xmm r{d2u(fn(u2d(a.value().lo), u2d(b.value().lo))), d2u(fn(u2d(a.value().hi), u2d(b.value().hi)))};
+            e.cpu.set_xmm(ops[0].xmm, r);
+            return ok();
+        };
+        if (m == "addpd") return packed_d([](double a, double b) { return a + b; });
+        if (m == "subpd") return packed_d([](double a, double b) { return a - b; });
+        if (m == "mulpd") return packed_d([](double a, double b) { return a * b; });
+        if (m == "divpd") return packed_d([](double a, double b) { return a / b; });
+
+        // packed-integer add/sub (element widths 1/2/4/8 bytes).
+        auto packed_int = [&](unsigned w, bool add) -> std::optional<StepOutcome> {
+            auto a = read_xmm(e, ops.at(0)), b = read_xmm(e, ops.at(1));
+            if (!a) return fault_(a.message());
+            if (!b) return fault_(b.message());
+            u8 ab[16], bb[16], rb[16];
+            std::memcpy(ab, &a.value(), 16); std::memcpy(bb, &b.value(), 16);
+            for (unsigned i = 0; i < 16; i += w) {
+                u64 x = 0, y = 0;
+                for (unsigned k = 0; k < w; ++k) { x |= (u64)ab[i + k] << (8 * k); y |= (u64)bb[i + k] << (8 * k); }
+                u64 z = add ? x + y : x - y;
+                for (unsigned k = 0; k < w; ++k) rb[i + k] = (u8)(z >> (8 * k));
+            }
+            Xmm r; std::memcpy(&r, rb, 16);
+            e.cpu.set_xmm(ops[0].xmm, r);
+            return ok();
+        };
+        if (m == "paddb") return packed_int(1, true);
+        if (m == "psubb") return packed_int(1, false);
+        if (m == "paddw") return packed_int(2, true);
+        if (m == "psubw") return packed_int(2, false);
+        if (m == "paddd") return packed_int(4, true);
+        if (m == "psubd") return packed_int(4, false);
+        if (m == "paddq") return packed_int(8, true);
+        if (m == "psubq") return packed_int(8, false);
+
+        // conversions.
+        if (m == "cvtsi2sd") {  // int (r/m) -> double (low 64)
+            auto v = read_op(e, ops.at(1)); if (!v) return fault_(v.message());
+            i64 s = (i64)v.value();
+            if (opsize(ops[1]) == 4) s = (int)v.value();
+            Xmm d = e.cpu.get_xmm(ops[0].xmm); d.lo = d2u((double)s); e.cpu.set_xmm(ops[0].xmm, d); return ok();
+        }
+        if (m == "cvtsi2ss") {
+            auto v = read_op(e, ops.at(1)); if (!v) return fault_(v.message());
+            i64 s = (i64)v.value(); if (opsize(ops[1]) == 4) s = (int)v.value();
+            Xmm d = e.cpu.get_xmm(ops[0].xmm); d.lo = (d.lo & 0xffffffff00000000ull) | f2u((float)s); e.cpu.set_xmm(ops[0].xmm, d); return ok();
+        }
+        if (m == "cvttsd2si" || m == "cvtsd2si") {  // double -> int (trunc / round-to-nearest)
+            auto b = read_xmm(e, ops.at(1)); if (!b) return fault_(b.message());
+            double x = u2d(b.value().lo);
+            i64 r = (m == "cvttsd2si") ? (i64)x : (i64)std::nearbyint(x);
+            if (opsize(ops[0]) == 4) r = (int)r;
+            if (auto w = write_op(e, ops[0], (u64)r); !w) return fault_(w.message());
+            return ok();
+        }
+        if (m == "cvttss2si" || m == "cvtss2si") {
+            auto b = read_xmm(e, ops.at(1)); if (!b) return fault_(b.message());
+            float x = u2f((u32)b.value().lo);
+            i64 r = (m == "cvttss2si") ? (i64)x : (i64)std::nearbyint(x);
+            if (opsize(ops[0]) == 4) r = (int)r;
+            if (auto w = write_op(e, ops[0], (u64)r); !w) return fault_(w.message());
+            return ok();
+        }
+        if (m == "cvtss2sd") { auto b = read_xmm(e, ops.at(1)); if (!b) return fault_(b.message()); Xmm d = e.cpu.get_xmm(ops[0].xmm); d.lo = d2u((double)u2f((u32)b.value().lo)); e.cpu.set_xmm(ops[0].xmm, d); return ok(); }
+        if (m == "cvtsd2ss") { auto b = read_xmm(e, ops.at(1)); if (!b) return fault_(b.message()); Xmm d = e.cpu.get_xmm(ops[0].xmm); d.lo = (d.lo & 0xffffffff00000000ull) | f2u((float)u2d(b.value().lo)); e.cpu.set_xmm(ops[0].xmm, d); return ok(); }
+
+        // ordered/unordered scalar compare -> EFLAGS (ZF/PF/CF; OF=SF=AF=0).
+        if (m == "ucomisd" || m == "comisd" || m == "ucomiss" || m == "comiss") {
+            double a, b;
+            auto xa = read_xmm(e, ops.at(0)), xb = read_xmm(e, ops.at(1));
+            if (!xa) return fault_(xa.message());
+            if (!xb) return fault_(xb.message());
+            if (m == "ucomiss" || m == "comiss") { a = u2f((u32)xa.value().lo); b = u2f((u32)xb.value().lo); }
+            else { a = u2d(xa.value().lo); b = u2d(xb.value().lo); }
+            bool zf, pf, cf;
+            if (std::isnan(a) || std::isnan(b)) { zf = pf = cf = true; }
+            else if (a > b) { zf = pf = cf = false; }
+            else if (a < b) { zf = false; pf = false; cf = true; }
+            else { zf = true; pf = false; cf = false; }
+            e.cpu.set_flag(flags::ZF, zf); e.cpu.set_flag(flags::PF, pf); e.cpu.set_flag(flags::CF, cf);
+            e.cpu.set_flag(flags::OF, false); e.cpu.set_flag(flags::SF, false); e.cpu.set_flag(flags::AF, false);
+            return ok();
+        }
+
+        return std::nullopt;  // not an SSE mnemonic we model
     }
 
     // mov-style: compute value and write to dst.

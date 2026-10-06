@@ -42,6 +42,11 @@ public:
     u64 get(Reg r) const noexcept { return regs_[idx(r)]; }
     void set(Reg r, u64 v) noexcept { regs_[idx(r)] = v; }
 
+    // SSE/SSE2 128-bit vector registers xmm0..xmm15, as {low 64, high 64}.
+    struct Xmm { u64 lo = 0, hi = 0; bool operator==(const Xmm& o) const noexcept { return lo == o.lo && hi == o.hi; } };
+    Xmm get_xmm(int i) const noexcept { return (i >= 0 && i < 16) ? xmm_[i] : Xmm{}; }
+    void set_xmm(int i, Xmm v) noexcept { if (i >= 0 && i < 16) xmm_[i] = v; }
+
     u64 rip() const noexcept { return regs_[idx(Reg::Rip)]; }
     void set_rip(u64 v) noexcept { regs_[idx(Reg::Rip)] = v; }
 
@@ -81,13 +86,14 @@ public:
     const std::array<u64, kNumReg>& raw() const noexcept { return regs_; }
     std::array<u64, kNumReg>& raw() noexcept { return regs_; }
 
-    bool operator==(const CpuState& o) const noexcept { return regs_ == o.regs_; }
+    bool operator==(const CpuState& o) const noexcept { return regs_ == o.regs_ && xmm_ == o.xmm_; }
 
 private:
     static constexpr std::size_t idx(Reg r) noexcept {
         return static_cast<std::size_t>(r);
     }
     std::array<u64, kNumReg> regs_{};
+    std::array<Xmm, 16> xmm_{};
     std::array<u16, static_cast<std::size_t>(Seg::Count)> segs_{};
     u64 fs_base_ = 0;
     u64 gs_base_ = 0;

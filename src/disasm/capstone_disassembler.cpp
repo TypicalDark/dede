@@ -94,6 +94,12 @@ bool in_group(const cs_insn& ins, u8 grp) {
     return false;
 }
 
+// Map an XMM capstone register to its 0..15 index, else -1.
+int map_xmm(unsigned cr) {
+    if (cr >= X86_REG_XMM0 && cr <= X86_REG_XMM15) return static_cast<int>(cr - X86_REG_XMM0);
+    return -1;
+}
+
 std::optional<SegReg> map_seg(unsigned cr) {
     switch (cr) {
         case X86_REG_CS: return SegReg::CS;
@@ -114,6 +120,11 @@ Operand convert_op(const cs_x86_op& op) {
             if (auto s = map_seg(op.reg)) {
                 out.kind = OpKind::SegReg;
                 out.seg = *s;
+                break;
+            }
+            if (int xi = map_xmm(op.reg); xi >= 0) {
+                out.kind = OpKind::Xmm;
+                out.xmm = xi;
                 break;
             }
             out.kind = OpKind::Reg;

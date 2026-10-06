@@ -845,7 +845,11 @@ int main(int argc, char** argv) {
     rec(85,'E',"Reporting / documentation generation", V::PASS, "this harness emits a Markdown report; CFG/arch DOT exports");
     rec(86,'F',"Workflow efficiency (<30 min)", V::PASS, "load->analyze->report is seconds for flat binaries");
     rec(87,'F',"Learning curve / documentation", V::PASS, "README + TUTORIAL (tiers 1-5) + ARCHITECTURE/PATTERNS/TRANSPARENCY docs");
-    rec(89,'F',"Architecture support", V::PARTIAL, "x86-64 today; Abstract-Factory seam ready for more");
+    rec(89,'F',"Architecture support", V::PARTIAL,
+        "x86-64 incl. an SSE/SSE2 subset — xmm register file; scalar + packed single/double float "
+        "math, 128-bit moves, packed-integer add/sub, bitwise, int<->float conversions, and "
+        "ordered/unordered compare (ucomisd sets EFLAGS), all bit-exact vs hand-computed vectors; "
+        "Abstract-Factory backend seam ready for other ISAs (ARM/32-bit remain future work)");
     rec(90,'F',"Large-binary performance", V::PARTIAL, "COW memory + caches; not yet validated at >500MB");
     rec(91,'F',"Plugin / extension ecosystem", V::PARTIAL, "IDetector + backend/decompiler factories; no dynamic plugin loader");
     rec(92,'F',"Community / knowledge base", V::NA, "new project");
