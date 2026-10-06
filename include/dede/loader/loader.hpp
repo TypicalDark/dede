@@ -33,14 +33,34 @@ struct LoadSymbol {
     bool is_func = false;
 };
 
+// A leaf of the PE .rsrc tree (type / id / language path + the raw bytes).
+struct Resource {
+    u32 type_id = 0;   // RT_* (3=icon, 6=string, 10=rcdata, 16=version, 24=manifest, ...)
+    u32 name_id = 0;   // id (named resources use a synthetic id, name in `name`)
+    u32 lang_id = 0;
+    std::string name;  // non-empty for name-identified resources
+    Addr rva = 0;
+    u32 size = 0;
+    std::vector<u8> bytes;
+};
+
+// A PE64 .pdata RUNTIME_FUNCTION record (x64 table-based exception handling).
+struct ExceptionEntry {
+    Addr begin = 0;    // VA of the protected range start
+    Addr end = 0;      // VA one past the range
+    Addr unwind = 0;   // VA of the UNWIND_INFO
+};
+
 struct LoadedImage {
     std::string format = "flat";  // "elf64" | "pe64" | "flat"
     Arch arch = Arch::X86_64;
     Addr entry = 0x1000;
     std::vector<LoadSegment> segments;
     std::vector<LoadSection> sections;
-    std::vector<LoadSymbol> symbols;      // defined functions/objects
-    std::vector<std::string> imports;     // imported (undefined) symbol names
+    std::vector<LoadSymbol> symbols;        // defined functions/objects
+    std::vector<std::string> imports;       // imported (undefined) symbol names
+    std::vector<Resource> resources;        // PE .rsrc leaves (empty for ELF/flat)
+    std::vector<ExceptionEntry> exceptions; // PE .pdata RUNTIME_FUNCTIONs (empty otherwise)
 };
 
 // Auto-detect by magic: ELF -> load_elf, MZ/PE -> load_pe, else flat at 0x1000.

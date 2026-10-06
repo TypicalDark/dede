@@ -61,6 +61,8 @@ public:
     std::string image_format() const override { return format_; }
     const std::vector<std::string>& imports() const override { return imports_; }
     const std::vector<LoadSection>& sections() const override { return sections_; }
+    const std::vector<Resource>& resources() const override { return resources_; }
+    const std::vector<ExceptionEntry>& exceptions() const override { return exceptions_; }
 
     // --- IDebugController: observing ----------------------------------------
     u64 read_reg(Reg r) const override { return core_.cpu().get(r); }
@@ -170,6 +172,8 @@ private:
     std::string format_ = "flat";
     std::vector<std::string> imports_;
     std::vector<LoadSection> sections_;
+    std::vector<Resource> resources_;
+    std::vector<ExceptionEntry> exceptions_;
 
     const ISessionState* state_ = &session_state(Phase::Idle);
 };

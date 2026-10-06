@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <functional>
 
 namespace dede {
 namespace {
@@ -132,6 +133,19 @@ Result<LoadedImage> load_pe64(const std::vector<u8>& d) {
     img.format = "pe64";
     img.entry = image_base + entry_rva;
 
+    // Optional-header data directories (PE32+: NumberOfRvaAndSizes at opt+108,
+    // array of {RVA,Size} at opt+112). We use the resource (2) and exception (3) dirs.
+    u32 num_dirs = r.u32_(opt + 108);
+    struct Dir { u32 rva = 0, size = 0; };
+    auto dir = [&](unsigned i) -> Dir {
+        if (i >= num_dirs) return {};
+        return {r.u32_(opt + 112 + i * 8), r.u32_(opt + 112 + i * 8 + 4)};
+    };
+    Dir res_dir = dir(2), exc_dir = dir(3);
+
+    // Section table, captured so we can map an RVA back to a file offset.
+    struct Sec { u32 vaddr, vsize, rawptr, rawsize; };
+    std::vector<Sec> secs;
     u64 sec = opt + opt_sz;
     for (u16 i = 0; i < nsec; ++i) {
         u64 s = sec + static_cast<u64>(i) * 40;
@@ -143,12 +157,62 @@ Result<LoadedImage> load_pe64(const std::vector<u8>& d) {
         u8 p = perm::R | ((chars & 0x80000000u) ? perm::W : 0) | ((chars & 0x20000000u) ? perm::X : 0);
         u64 va = image_base + vaddr;
         img.sections.push_back({nm, va, vsize, p});
+        secs.push_back({vaddr, vsize ? vsize : rawsize, rawptr, rawsize});
         if (vsize) img.segments.push_back({va, p, slice_padded(d, rawptr, rawsize, vsize ? vsize : rawsize)});
     }
     if (img.segments.empty()) return make_error("PE: no sections");
     if (!r.ok) return make_error("PE: truncated or malformed headers");
-    // (Import directory parsing is a future step; headers/sections/entry are enough
-    // for load + run + section analysis today.)
+
+    // Map an RVA to a file offset via the containing section (0 if none).
+    auto rva_to_off = [&](u32 rva) -> u64 {
+        for (const auto& s : secs)
+            if (rva >= s.vaddr && rva < s.vaddr + s.vsize) return s.rawptr + (rva - s.vaddr);
+        return 0;
+    };
+
+    // --- .pdata exception table: RUNTIME_FUNCTION[] (3x u32: begin, end, unwind).
+    if (exc_dir.rva && exc_dir.size) {
+        u64 off = rva_to_off(exc_dir.rva);
+        for (u32 o = 0; o + 12 <= exc_dir.size; o += 12) {
+            u32 b = r.u32_(off + o), e = r.u32_(off + o + 4), u = r.u32_(off + o + 8);
+            if (!b && !e) break;  // zero terminator
+            img.exceptions.push_back({image_base + b, image_base + e, image_base + u});
+        }
+    }
+
+    // --- .rsrc resource tree: recursively walk 3 levels (type / id / lang) to leaves.
+    if (res_dir.rva && res_dir.size) {
+        u64 base = rva_to_off(res_dir.rva);  // file offset of the resource section start
+        // (type, name, lang) accumulate down the levels; depth 0=type,1=name,2=lang.
+        std::function<void(u64, int, u32, u32, u32)> walk =
+            [&](u64 node_off, int depth, u32 type, u32 name, u32 lang) {
+                u16 n_named = r.u16_(node_off + 12), n_id = r.u16_(node_off + 14);
+                u64 ent = node_off + 16;
+                unsigned total = static_cast<unsigned>(n_named) + n_id;
+                for (unsigned i = 0; i < total && i < 4096; ++i) {
+                    u32 id = r.u32_(ent + i * 8);
+                    u32 to = r.u32_(ent + i * 8 + 4);
+                    u32 key = id & 0x7fffffffu;  // high bit of id = named entry (name offset)
+                    u32 t = type, nm = name, lg = lang;
+                    if (depth == 0) t = key;
+                    else if (depth == 1) nm = key;
+                    else lg = key;
+                    if (to & 0x80000000u) {  // subdirectory
+                        if (depth < 2) walk(base + (to & 0x7fffffffu), depth + 1, t, nm, lg);
+                    } else {                 // data entry: {DataRVA, Size, Codepage, 0}
+                        u64 de = base + to;
+                        u32 data_rva = r.u32_(de), size = r.u32_(de + 4);
+                        Resource res;
+                        res.type_id = t; res.name_id = nm; res.lang_id = lg;
+                        res.rva = image_base + data_rva; res.size = size;
+                        u64 doff = rva_to_off(data_rva);
+                        for (u32 k = 0; k < size && r.has(doff + k, 1); ++k) res.bytes.push_back(r.u8_(doff + k));
+                        img.resources.push_back(std::move(res));
+                    }
+                }
+            };
+        walk(base, 0, 0, 0, 0);
+    }
     return img;
 }
 

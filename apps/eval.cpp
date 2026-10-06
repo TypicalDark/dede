@@ -25,6 +25,7 @@
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
 #include "dede/loader/loader.hpp"
+#include "dede/samples/pe_fixture.hpp"
 #include "dede/session/analysis_session.hpp"
 #include "dede/types/types.hpp"
 
@@ -494,6 +495,22 @@ void run_dynamic_checks() {
             "validated prologues (push rbp;mov rbp,rsp / endbr64) — including functions not reached "
             "from the entry (a never-called f2 is found); boundaries via per-entry CFG reach");
     }
+    // 19 & 79: PE data-directory depth — .rsrc resources + .pdata exception table.
+    {
+        auto img = load_pe64(samples::make_pe64_fixture());
+        bool loaded = (bool)img;
+        bool res_ok = loaded && img.value().resources.size() == 1 &&
+                      img.value().resources[0].size == 4 &&
+                      std::string(img.value().resources[0].bytes.begin(), img.value().resources[0].bytes.end()) == "DEDE";
+        bool exc_ok = loaded && img.value().exceptions.size() == 1 &&
+                      img.value().exceptions[0].begin == 0x401000 && img.value().exceptions[0].end == 0x401010;
+        rec(79,'E',"Resource extraction (.rsrc)", res_ok ? V::PASS : V::FAIL,
+            "PE optional-header data directories parsed; the .rsrc tree is walked (type/name/lang) "
+            "to its leaves and the raw bytes extracted (shell `resources` + `resource dump`)");
+        rec(19,'B',"Exception-handler visualization", exc_ok ? V::PARTIAL : V::FAIL,
+            "static .pdata RUNTIME_FUNCTION table parsed (protected ranges + UNWIND_INFO) and the "
+            "fs:[0] SEH detector fold into a `seh` view; live __try/__except dispatch stays out of scope");
+    }
     // 83: memory map
     {
         auto s = fresh(kLoop);
@@ -605,7 +622,6 @@ int main(int argc, char** argv) {
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
-    rec(19,'B',"Exception-handler visualization", V::NA, "no SEH model (see TRANSPARENCY roadmap: fault delivery)");
     rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
     rec(26,'B',"Virtual method resolution", V::NA, "no C++ RTTI/vtable recovery (roadmap: UML view)");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
@@ -624,7 +640,6 @@ int main(int argc, char** argv) {
     rec(72,'E',"Batch processing", V::PASS, "CLI loads files; stdin-scriptable; this harness is batch over the engine");
     rec(73,'E',"Custom detection rules", V::PARTIAL, "pluggable C++ IDetector framework; user-facing rule DSL pending");
     rec(74,'E',"Graph query language", V::PARTIAL, "CFG/call-graph queryable in code; no end-user query DSL");
-    rec(79,'E',"Resource extraction (.rsrc)", V::NA, "PE resource section out of scope");
     rec(80,'E',"Cross-tool database import (IDA)", V::NA, "no IDB/BNDB import");
     rec(81,'E',"Incremental analysis / caching", V::PARTIAL, "Flyweight decode cache; no persisted analysis DB");
     rec(82,'E',"Annotation sync / collaboration", V::PARTIAL, "symbols + comments; no team sync");

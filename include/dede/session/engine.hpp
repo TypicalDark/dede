@@ -59,6 +59,8 @@ public:
     virtual std::string image_format() const = 0;
     virtual const std::vector<std::string>& imports() const = 0;
     virtual const std::vector<LoadSection>& sections() const = 0;
+    virtual const std::vector<Resource>& resources() const = 0;      // PE .rsrc leaves
+    virtual const std::vector<ExceptionEntry>& exceptions() const = 0;  // PE .pdata table
 
     // --- views ---------------------------------------------------------------
     virtual std::vector<DecodedInsn> disassemble(Addr addr, std::size_t count) const = 0;

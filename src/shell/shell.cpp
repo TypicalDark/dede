@@ -158,6 +158,8 @@ bool Shell::execute(const std::string& line) {
             "  backtrace | bt           unwind the call stack + check return-address integrity\n"
             "  xref <addr>              list code/data references to an address\n"
             "  functions | funcs        discover function entries (symbols + xrefs + prologues)\n"
+            "  resources | rsrc         list PE .rsrc resources (resource dump <i> <path> extracts)\n"
+            "  seh | exceptions         list PE .pdata exception table + scanned fs:[0] handlers\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -543,6 +545,36 @@ bool Shell::execute(const std::string& line) {
             }
         out_ << fns.size() << " function(s) discovered:\n";
         for (Addr f : fns) out_ << "  " << hex(f) << annotate(f) << "\n";
+        return true;
+    }
+    if (cmd == "resources" || cmd == "rsrc") {
+        const auto& rs = s_.resources();
+        out_ << rs.size() << " resource(s):\n";
+        for (std::size_t i = 0; i < rs.size(); ++i)
+            out_ << "  [" << i << "] type=" << rs[i].type_id << " id=" << rs[i].name_id
+                 << " lang=" << rs[i].lang_id << " @ " << hex(rs[i].rva) << " size=" << rs[i].size << "\n";
+        out_ << "(resource dump <index> <path> to extract)\n";
+        return true;
+    }
+    if (cmd == "resource" && tok.size() >= 4 && tok[1] == "dump") {
+        const auto& rs = s_.resources();
+        std::size_t idx = static_cast<std::size_t>(arg_u64(2, 0));
+        if (idx >= rs.size()) { out_ << "no such resource\n"; return true; }
+        std::ofstream f(tok[3], std::ios::binary);
+        f.write(reinterpret_cast<const char*>(rs[idx].bytes.data()), static_cast<std::streamsize>(rs[idx].bytes.size()));
+        out_ << "wrote " << rs[idx].bytes.size() << " byte(s) to " << tok[3] << "\n";
+        return true;
+    }
+    if (cmd == "seh" || cmd == "exceptions") {
+        const auto& ex = s_.exceptions();
+        out_ << ex.size() << " exception table entry(ies) (.pdata RUNTIME_FUNCTIONs):\n";
+        for (const auto& e : ex)
+            out_ << "  [" << hex(e.begin) << ".." << hex(e.end) << ") unwind=" << hex(e.unwind) << "\n";
+        // Fold in dynamic fs:[0]-style handlers the scanner finds in reachable code.
+        auto f = detect(s_.arch(), reader, s_.rip(), 64);
+        for (const auto& x : f)
+            if (x.category == "exception-handler")
+                out_ << "  [scan] " << x.rule << " @ " << hex(x.addr) << "\n";
         return true;
     }
     if (cmd == "backtrace" || cmd == "bt") {

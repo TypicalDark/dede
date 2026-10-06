@@ -7,6 +7,7 @@
 
 #include "check.hpp"
 #include "dede/loader/loader.hpp"
+#include "dede/samples/pe_fixture.hpp"
 #include "dede/session/analysis_session.hpp"
 
 using namespace dede;
@@ -81,6 +82,26 @@ TEST("flat fallback for a raw blob") {
 TEST("malformed ELF is rejected, not crashed") {
     std::vector<u8> bad = {0x7f, 'E', 'L', 'F', 2, 1, 1};  // truncated
     CHECK(!load_elf64(bad).ok());
+}
+
+TEST("PE64 loader parses .rsrc resources and the .pdata exception table") {
+    auto img = load_pe64(samples::make_pe64_fixture());
+    CHECK(img.ok());
+    CHECK_EQ(img.value().format, std::string("pe64"));
+    CHECK_EQ(img.value().entry, 0x401000u);
+
+    CHECK_EQ(img.value().resources.size(), 1u);
+    const auto& r = img.value().resources[0];
+    CHECK_EQ(r.type_id, 6u);
+    CHECK_EQ(r.name_id, 1u);
+    CHECK_EQ(r.lang_id, 0x409u);
+    CHECK_EQ(r.size, 4u);
+    CHECK_EQ(std::string(r.bytes.begin(), r.bytes.end()), std::string("DEDE"));
+
+    CHECK_EQ(img.value().exceptions.size(), 1u);
+    CHECK_EQ(img.value().exceptions[0].begin, 0x401000u);
+    CHECK_EQ(img.value().exceptions[0].end, 0x401010u);
+    CHECK_EQ(img.value().exceptions[0].unwind, 0x404000u);
 }
 
 int main() { return dede::test::run_all(); }

@@ -53,6 +53,8 @@ Result<void> AnalysisSession::load_image(const LoadedImage& img) {
     format_ = img.format;
     imports_ = img.imports;
     sections_ = img.sections;
+    resources_ = img.resources;
+    exceptions_ = img.exceptions;
     set_entry(img.entry);
     return {};
 }
