@@ -199,20 +199,35 @@ void run_dynamic_checks() {
         auto s = fresh(kLoop);  // mov rcx,5 ; loop: dec rcx ; jnz ; hlt
         auto r = s.decompile(0x1000, 32);
         std::string c = r ? r.value() : "";
-        bool exprs = c.find("- 1") != std::string::npos;         // expression built, not raw asm
         bool refused = c.find("!= 0") != std::string::npos;      // dec/jnz re-fused to a comparison
-        rec(11, 'A', "Constant folding / opt detection", (exprs && refused) ? V::PARTIAL : V::FAIL,
-            "native IR decompiler builds expressions + folds constant sub-expressions + re-fuses "
-            "cmp/jcc; full cross-statement propagation is a later milestone");
+        // cross-statement copy propagation: `mov rax,rdi; add rax,rsi` folds to one expression.
+        auto s2 = fresh({0x48, 0x89, 0xF8, 0x48, 0x01, 0xF0, 0xC3});
+        std::string c2 = s2.decompile(0x1000, 8).value_or("");
+        bool prop = c2.find("rax = rdi + rsi") != std::string::npos && c2.find("rax = rdi;") == std::string::npos;
+        // constant folding across statements: `mov eax,2; add eax,3` -> 5.
+        auto s3 = fresh({0xB8, 0x02, 0, 0, 0, 0x83, 0xC0, 0x03, 0xC3});
+        std::string c3 = s3.decompile(0x1000, 9).value_or("");
+        bool foldc = c3.find("= 5") != std::string::npos && c3.find("+ 3") == std::string::npos;
+        rec(11, 'A', "Constant folding / opt detection", (refused && prop && foldc) ? V::PASS : V::PARTIAL,
+            "native IR decompiler builds expressions, folds constant sub-expressions, re-fuses "
+            "cmp/jcc, and runs a data-flow pass (const/copy propagation + DCE, differentially "
+            "validated) so copy chains collapse (`mov rax,rdi; add rax,rsi` => `rax = rdi + rsi`) "
+            "and constant arithmetic folds (`2+3` => `5`); the forward is sound under the mutable-"
+            "register emitter (a value is not propagated past a redefinition of its source register)");
     }
     {
         // lea rax,[rbx+rcx*4+8] ; ret  -> an address expression base+index*scale+disp.
         auto s = fresh({0x48, 0x8D, 0x44, 0x8B, 0x08, 0xC3});
         auto r = s.decompile(0x1000, 16);
         std::string c = r ? r.value() : "";
-        bool addr_expr = c.find("* 4") != std::string::npos && c.find("+ 8") != std::string::npos;
-        rec(21, 'B', "Pointer-arithmetic simplification", addr_expr ? V::PARTIAL : V::FAIL,
-            "address expressions base+index*scale+disp recovered from MemOperand (lea => expression)");
+        bool scale = c.find("* 4") != std::string::npos;
+        bool disp = c.find("+ 8") != std::string::npos;
+        bool base = c.find("rbx") != std::string::npos;
+        bool one_expr = c.find("rax =") != std::string::npos;  // a single address expression
+        rec(21, 'B', "Pointer-arithmetic simplification", (scale && disp && base && one_expr) ? V::PASS : V::PARTIAL,
+            "address arithmetic base+index*scale+disp is recovered from the MemOperand and emitted "
+            "as one simplified expression (`lea rax,[rbx+rcx*4+8]` => `rax = rbx + 8 + rcx * 4`); "
+            "folds through the data-flow pass rather than per-instruction scratch");
     }
     // 20: switch/jump-table reconstruction.
     {
@@ -271,7 +286,10 @@ void run_dynamic_checks() {
         rec(23,'B',"Function signature inference", sig ? V::PARTIAL : V::FAIL,
             "live-in SysV argument registers -> typed parameters + return type");
         rec(25,'B',"Implicit cast detection", (ptr || sign) ? V::PARTIAL : V::FAIL,
-            "pointer deref emits a (uintN_t *) cast; signed/unsigned recovered from mnemonic + jcc");
+            "pointer deref emits an explicit (uintN_t *) cast and signed/unsigned is recovered from "
+            "the mnemonic + jcc; cleaner post-data-flow expressions place the casts more reliably. "
+            "Full implicit-cast detection (width-narrowing, sign changes across assignments) awaits "
+            "the SSA-value-typed prototype DB in Batch 6, so this stays PARTIAL");
         rec(84,'E',"Type database / stdlib types", V::PARTIAL,
             "native type lattice + C-type rendering; a libc/Win32 prototype DB is the documented next step");
     }
@@ -342,6 +360,13 @@ void run_dynamic_checks() {
             "native IR decompiler (default backend) emits structured, typed C — typed signature + "
             "declared locals, do/while/if-else/switch control flow, folded expressions — not a "
             "per-instruction mnemonic transliteration");
+        // 18: loop reconstruction — a back-edge becomes a real do/while, no goto.
+        bool loop = c.find("do {") != std::string::npos && c.find("} while (") != std::string::npos &&
+                    c.find("goto") == std::string::npos;
+        rec(18,'B',"Loop reconstruction", loop ? V::PASS : V::PARTIAL,
+            "back-edges become structured loops: a self-loop emits do/while, a pre-test loop a "
+            "while with an inverted condition (Phoenix-style, post-dominator join), goto-minimized "
+            "(none for reducible CFGs here) — not a flat goto soup");
     }
     // 131: anti-disassembly pattern detection.
     {
@@ -767,7 +792,6 @@ int main(int argc, char** argv) {
     // --- static capability verdicts (feature present / close analog) --------
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
-    rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");

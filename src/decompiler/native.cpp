@@ -18,6 +18,8 @@
 #include "dede/analysis/cfg.hpp"
 #include "dede/decompiler/decompiler.hpp"
 #include "dede/ir/lifter.hpp"
+#include "dede/ir/opt.hpp"
+#include "dede/ir/ssa.hpp"
 #include "dede/types/types.hpp"
 
 namespace dede {
@@ -440,47 +442,6 @@ std::string negate_cond(const std::string& c) {
 // --- dominators / post-dominators -------------------------------------------
 constexpr Addr kExit = ~Addr(0);
 
-std::map<Addr, std::set<Addr>> compute_dom(const std::vector<Addr>& nodes, Addr root,
-                                           const std::map<Addr, std::vector<Addr>>& preds) {
-    std::map<Addr, std::set<Addr>> dom;
-    std::set<Addr> all(nodes.begin(), nodes.end());
-    for (Addr n : nodes) dom[n] = all;
-    dom[root] = {root};
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (Addr n : nodes) {
-            if (n == root) continue;
-            std::set<Addr> inter;
-            bool first = true;
-            auto it = preds.find(n);
-            if (it != preds.end())
-                for (Addr p : it->second) {
-                    if (!dom.count(p)) continue;
-                    if (first) { inter = dom[p]; first = false; }
-                    else { std::set<Addr> t; for (Addr x : inter) if (dom[p].count(x)) t.insert(x); inter.swap(t); }
-                }
-            inter.insert(n);
-            if (inter != dom[n]) { dom[n] = inter; changed = true; }
-        }
-    }
-    return dom;
-}
-
-// Immediate post-dominator = the nearest post-dominator (the one with the most
-// post-dominators of its own among n's strict post-dominators).
-Addr ipdom_of(Addr n, const std::map<Addr, std::set<Addr>>& pdom) {
-    auto it = pdom.find(n);
-    if (it == pdom.end()) return kExit;
-    Addr best = kExit; std::size_t bestsz = 0; bool found = false;
-    for (Addr c : it->second) {
-        if (c == n) continue;
-        std::size_t sz = pdom.count(c) ? pdom.at(c).size() : 1;
-        if (!found || sz > bestsz) { bestsz = sz; best = c; found = true; }
-    }
-    return best;
-}
-
 // --- function emitter -------------------------------------------------------
 struct BInfo {
     std::vector<std::string> stmts;
@@ -503,6 +464,11 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
     for (const auto& bb : cfg.blocks) {
         nodes.push_back(bb.start);
         ir::Block ib = ir::lift_block(bb);
+        // Data-flow simplification (Batch 5): constant/copy propagation, folding,
+        // and dead-code elimination over the block before expression building, so
+        // copy chains collapse into single expressions. CSE is left off here so a
+        // flag-feeding sub/and is never merged away before cmp/jcc re-fusion.
+        ib.code = ir::simplify_block(ib.code, /*cse=*/false);
         Folder f;
         f.aggs = &ft.aggregates;  // render struct-pointer derefs as field accesses
         BlockOut bo = f.run(ib);
@@ -535,15 +501,18 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
         succ[n] = s;
         for (Addr t : s) preds[t].push_back(n);
     }
-    auto dom = compute_dom(nodes, entry, preds);
+    // Dominator tree (Cooper-Harvey-Kennedy) over the forward graph, and the
+    // post-dominator tree over the reverse graph (its successors are the forward
+    // predecessors). Shared with the SSA machinery in ir/ssa.hpp.
+    auto idom = ir::dominator_tree(nodes, entry, succ);
     std::vector<Addr> rnodes = nodes; rnodes.push_back(kExit);
-    auto pdom = compute_dom(rnodes, kExit, succ);  // reverse-graph preds = forward succ
+    auto pidom = ir::dominator_tree(rnodes, kExit, preds);
 
     // loop headers: target of a back-edge (edge m->h where h dominates m)
     std::set<Addr> loop_headers;
     for (Addr m : nodes)
         for (Addr s : succ[m])
-            if (s != kExit && dom.count(m) && dom.at(m).count(s)) loop_headers.insert(s);
+            if (s != kExit && ir::dominates(idom, s, m)) loop_headers.insert(s);
 
     // can `from` reach `target` over flow edges (for while body/exit classification)?
     auto can_reach = [&](Addr from, Addr target) {
@@ -610,8 +579,8 @@ std::string decompile_function(const IDisassembler& dis, const ByteReader& read,
             }
 
             if (!b.condition.empty() && b.taken && b.nottaken) {
-                bool back = dom.count(n) && (dom.at(n).count(b.taken) || dom.at(n).count(b.nottaken));
-                Addr j = ipdom_of(n, pdom);
+                bool back = ir::dominates(idom, b.taken, n) || ir::dominates(idom, b.nottaken, n);
+                Addr j = pidom.count(n) ? pidom[n] : kExit;
                 if (!back && b.taken != b.nottaken && j != n) {
                     if (!collect) body << pad << "if (" << b.condition << ") {\n";
                     emit(b.taken, j, ind + 1, collect);

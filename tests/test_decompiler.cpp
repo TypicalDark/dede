@@ -141,4 +141,29 @@ TEST("decompiler leaves a single-bit test as a bit-test, not a bitfield") {
     CHECK(!has(c, "BITFIELD"));  // width 1 is a flag/bit-test, deliberately not a bitfield
 }
 
+TEST("data-flow: cross-statement copy propagation collapses a copy chain") {
+    // mov rax,rdi; add rax,rsi; ret  -> one expression `rax = rdi + rsi`,
+    // not the two-statement `rax = rdi; rax = rax + rsi`.
+    std::string c = decompile_bytes({0x48, 0x89, 0xF8, 0x48, 0x01, 0xF0, 0xC3});
+    CHECK(has(c, "rax = rdi + rsi"));
+    CHECK(!has(c, "rax = rdi;"));   // the intermediate copy was propagated away
+}
+
+TEST("data-flow: constant folding across statements") {
+    // mov eax,2; add eax,3; ret  -> rax = 5
+    std::string c = decompile_bytes({0xB8, 0x02, 0, 0, 0, 0x83, 0xC0, 0x03, 0xC3});
+    CHECK(has(c, "= 5"));
+    CHECK(!has(c, "+ 3"));          // the add was folded, not emitted
+}
+
+TEST("data-flow: propagation is sound when the source register is reassigned") {
+    // add rdi,rsi; mov rax,rdi; add rax,rsi; ret
+    // rdi is rewritten, so rax must NOT fold to a stale rdi; the result is the
+    // sound (verbose) form, never `rax = rdi + rsi + rsi` (which would read the
+    // new rdi). This guards the mutable-register lowering invariant.
+    std::string c = decompile_bytes({0x48, 0x01, 0xF7, 0x48, 0x89, 0xF8, 0x48, 0x01, 0xF0, 0xC3});
+    CHECK(has(c, "rdi = rdi + rsi"));
+    CHECK(!has(c, "rax = rdi + rsi + rsi"));  // the unsound forward must not happen
+}
+
 int main() { return dede::test::run_all(); }

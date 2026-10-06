@@ -187,15 +187,26 @@ Code in `analysis/recover.{hpp,cpp}` (static) + `session/vcall_tracker.hpp` (dyn
   fixture vtable (3 slots) found statically with name "Foo", slot1 target `sub_1006` observed
   dynamically; **#26 → PASS** (static vtable + Itanium name + dynamic target). ✅
 
-### Batch 5 — Decompiler data-flow *(HIGH · large)* — tasks #22/#23
-- **T5.1 SSA** — dominator tree over the CFG, Cytron phi placement, Vn def/use versioning.
-- **T5.2 Propagation/CSE/DCE** — worklist passes on SSA: const/copy propagation (generalize
-  `fold()`/`binary()` across statements), CSE (hash-cons `Expr`, reuse `equal()`), DCE honoring
-  Store/Call/flag side effects. Each pass differentially validated like `test_ir.cpp`.
-  _Done:_ a value used N times renders as one named temp (not recomputed); dead flag-only defs
-  disappear; a straight-line sample folds to ≤ Ghidra's statement count; every pass has a
-  differential test (transformed IR evaluates bit-identically to the interpreter); **#11 #21
-  #25 → PASS**, #16/#18 visibly cleaner.
+### Batch 5 — Decompiler data-flow *(HIGH · large)* — tasks #22/#23 — ✅ shipped
+Code in `ir/ssa.{hpp,cpp}` (dominators + phi) and `ir/opt.{hpp,cpp}` (data-flow),
+tested in `test_opt.cpp` + `test_decompiler.cpp`.
+- **T5.1 SSA** — `dominator_tree` (Cooper-Harvey-Kennedy), `dominance_frontier`, and Cytron
+  `place_phis` over an abstract CFG. _Done:_ diamond + loop CFGs give the textbook idom /
+  dominance-frontier / phi-placement results in tests; the dominator tree now backs the
+  decompiler's own loop-header and if/else-join structuring (replacing the old O(N²) set-based
+  `compute_dom`). ✅ Full Vn-versioned rename across joins (phi materialization in the emitted
+  IR) is the documented next step; the join-free (per-basic-block) case is what T5.2 consumes.
+- **T5.2 Propagation/CSE/DCE** — `simplify_block`: constant folding + constant/copy propagation,
+  a few algebraic identities, optional CSE, and dead-code elimination, all over one basic block.
+  _Done:_ every transform is differentially validated (the optimized block evaluates
+  bit-identically to the original across seeded states, `test_opt.cpp`); wired into the native
+  decompiler before expression building so copy chains collapse (`mov rax,rdi; add rax,rsi` =>
+  `rax = rdi + rsi`) and constant arithmetic folds (`2+3` => `5`). The forward is **sound under
+  the mutable-register emitter**: a value is never propagated past a redefinition of a source
+  register it names (guarded, with a regression test). CSE is disabled in the decompiler path so
+  a flag-feeding sub/and is never merged before cmp/jcc re-fusion. **#11 #18 #21 → PASS**; #16
+  stays PASS and visibly cleaner; **#25 stays PARTIAL** (full implicit-cast detection is
+  type-driven — deferred to Batch 6's SSA-value-typed prototype DB, honest rather than forced).
 
 ### Batch 6 — Type & symbol knowledge *(large)* — depends on Batch 5
 - **T6.1 FLIRT-style signatures** — `ISignatureProvider` + masked-pattern/CRC format; `dede-sig`
