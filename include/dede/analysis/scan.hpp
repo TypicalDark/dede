@@ -71,6 +71,19 @@ std::vector<Finding> detect(Arch arch, const ByteReader& read, Addr addr, std::s
 // Names of the registered detectors (for reporting / `scan list`).
 std::vector<std::string> detector_names();
 
+// --- packer / protector identification --------------------------------------
+// A section as the packer scan sees it (built from the loader's LoadSection).
+struct PackerSection {
+    std::string name;
+    Addr addr = 0;
+    u64 size = 0;
+    bool exec = false;
+};
+// Flag known packer/protector section-name signatures and high-entropy
+// executable sections (packed/encrypted code). Behavioral confirmation (W^X /
+// self-decrypt at runtime) is separate and upgrades confidence.
+std::vector<Finding> scan_packer(const std::vector<PackerSection>& sections, const ByteReader& read);
+
 // --- call graph -------------------------------------------------------------
 
 struct CallGraph {

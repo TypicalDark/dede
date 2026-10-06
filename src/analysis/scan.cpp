@@ -347,6 +347,30 @@ void scan_anti_disasm(const std::vector<DecodedInsn>& insns, std::vector<Finding
 
 }  // namespace
 
+std::vector<Finding> scan_packer(const std::vector<PackerSection>& secs, const ByteReader& read) {
+    static const std::pair<const char*, const char*> sig[] = {
+        {"UPX0", "UPX"}, {"UPX1", "UPX"}, {"UPX!", "UPX"}, {".aspack", "ASPack"}, {".adata", "ASPack"},
+        {".nsp0", "NsPack"}, {".nsp1", "NsPack"}, {".petite", "Petite"}, {".vmp0", "VMProtect"},
+        {".vmp1", "VMProtect"}, {".themida", "Themida"}, {".enigma1", "Enigma"}, {".enigma2", "Enigma"},
+        {".mpress1", "MPRESS"}, {".mpress2", "MPRESS"}, {".pec1", "PECompact"}, {".taz", "PESpin"},
+        {".sforce", "StarForce"}, {"FSG!", "FSG"}, {".y0da", "yoda-crypter"},
+    };
+    std::vector<Finding> out;
+    bool named = false;
+    for (const auto& s : secs)
+        for (const auto& [nm, packer] : sig)
+            if (s.name == nm) {
+                out.push_back({"packer", std::string(packer) + " (section name " + nm + ")",
+                               s.addr, s.name, "warning"});
+                named = true;
+            }
+    for (const auto& s : secs)
+        if (s.exec && s.size >= 16 && shannon_entropy(read, s.addr, s.size) > 7.0)
+            out.push_back({"packer", "high-entropy executable section (packed/encrypted?)",
+                           s.addr, s.name, named ? "notice" : "warning"});
+    return out;
+}
+
 std::vector<Finding> detect(Arch arch, const ByteReader& read, Addr addr, std::size_t count) {
     auto d = make_disassembler(arch);
     auto bytes = read_run(read, addr, count * 15 + 15);

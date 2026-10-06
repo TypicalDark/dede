@@ -160,6 +160,7 @@ bool Shell::execute(const std::string& line) {
             "  functions | funcs        discover function entries (symbols + xrefs + prologues)\n"
             "  resources | rsrc         list PE .rsrc resources (resource dump <i> <path> extracts)\n"
             "  seh | exceptions         list PE .pdata exception table + scanned fs:[0] handlers\n"
+            "  packer                   identify packers (section signatures + high entropy)\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -563,6 +564,15 @@ bool Shell::execute(const std::string& line) {
         std::ofstream f(tok[3], std::ios::binary);
         f.write(reinterpret_cast<const char*>(rs[idx].bytes.data()), static_cast<std::streamsize>(rs[idx].bytes.size()));
         out_ << "wrote " << rs[idx].bytes.size() << " byte(s) to " << tok[3] << "\n";
+        return true;
+    }
+    if (cmd == "packer") {
+        std::vector<PackerSection> ps;
+        for (const auto& sc : s_.sections())
+            ps.push_back({sc.name, sc.addr, sc.size, (sc.perms & perm::X) != 0});
+        auto f = scan_packer(ps, reader);
+        out_ << f.size() << " packer finding(s):\n";
+        for (const auto& x : f) out_ << "  [" << x.severity << "] " << x.rule << " @ " << hex(x.addr) << "\n";
         return true;
     }
     if (cmd == "seh" || cmd == "exceptions") {

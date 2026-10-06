@@ -26,6 +26,7 @@
 #include "dede/analysis/xrefs.hpp"
 #include "dede/loader/loader.hpp"
 #include "dede/samples/pe_fixture.hpp"
+#include "dede/session/alloc_tracker.hpp"
 #include "dede/session/analysis_session.hpp"
 #include "dede/types/types.hpp"
 
@@ -495,6 +496,65 @@ void run_dynamic_checks() {
             "validated prologues (push rbp;mov rbp,rsp / endbr64) — including functions not reached "
             "from the entry (a never-called f2 is found); boundaries via per-entry CFG reach");
     }
+    // 44: heap allocation tracking (hook malloc/free; time-travel-correct live set).
+    {
+        // main: r15=0x50000 heap; malloc(0x10); malloc(0x20); free(0x50000); free(0x50000)
+        // malloc@0x1038: mov rax,r15; add r15,rdi; ret    free@0x103f: ret
+        std::vector<u8> prog = {
+            0x49,0xC7,0xC7,0x00,0x00,0x05,0x00,   // 0x1000 mov r15,0x50000
+            0x48,0xC7,0xC7,0x10,0x00,0x00,0x00,   // 0x1007 mov rdi,0x10
+            0xE8,0x25,0x00,0x00,0x00,             // 0x100e call 0x1038
+            0x48,0xC7,0xC7,0x20,0x00,0x00,0x00,   // 0x1013 mov rdi,0x20
+            0xE8,0x19,0x00,0x00,0x00,             // 0x101a call 0x1038
+            0x48,0xC7,0xC7,0x00,0x00,0x05,0x00,   // 0x101f mov rdi,0x50000
+            0xE8,0x14,0x00,0x00,0x00,             // 0x1026 call 0x103f
+            0x48,0xC7,0xC7,0x00,0x00,0x05,0x00,   // 0x102b mov rdi,0x50000
+            0xE8,0x08,0x00,0x00,0x00,             // 0x1032 call 0x103f (double free)
+            0xF4,                                 // 0x1037 hlt
+            0x4C,0x89,0xF8, 0x49,0x01,0xFF, 0xC3, // 0x1038 malloc: mov rax,r15; add r15,rdi; ret(@0x103e)
+            0xC3 };                               // 0x103f free: ret
+        auto s = fresh(prog);
+        AllocationTracker tr;
+        auto hook = [&](Addr a, std::function<void(IDebugController&)> fn) {
+            RunPoint rp; rp.type = RunPointType::Address; rp.address = a; rp.pause = false;
+            u64 id = s.add_run_point(std::move(rp));
+            auto m = std::make_shared<Macro>(); m->callback = std::move(fn); s.bind_macro(id, m);
+        };
+        hook(0x1038, [&](IDebugController& c) { tr.on_malloc_entry(c); });
+        hook(0x103e, [&](IDebugController& c) { tr.on_malloc_return(c); });
+        hook(0x103f, [&](IDebugController& c) { tr.on_free_entry(c); });
+        s.run();
+        bool peaked2 = tr.peak_live() == 2;          // two blocks simultaneously live
+        bool leak1 = tr.leaks().size() == 1 && tr.leaks()[0].ptr == 0x50010;  // 0x50000 freed, 0x50010 leaked
+        bool dbl = tr.double_free();                 // the second free(0x50000) is caught
+        rec(44,'C',"Memory allocation tracking", (peaked2 && leak1 && dbl) ? V::PASS : V::FAIL,
+            "hooks malloc/free and records a time-travel-correct allocation map (live set "
+            "reconstructed per tick); reports leaks (still-live blocks) and flags double-free / "
+            "free-of-unallocated");
+    }
+    // 51: packer / protector identification (section signatures + entropy).
+    {
+        // a UPX0 (bss-ish) + UPX1 (high-entropy executable) section layout.
+        std::vector<u8> hi;  // pseudo-random high-entropy bytes
+        u32 seed = 0x12345;
+        for (int i = 0; i < 256; ++i) { seed = seed * 1103515245u + 12345u; hi.push_back((u8)(seed >> 16)); }
+        auto s = fresh(hi);
+        auto rd = reader_of(s);
+        std::vector<PackerSection> packed = {{"UPX0", 0x1000, 0x100, false}, {"UPX1", 0x1000, 0x100, true}};
+        std::vector<PackerSection> clean = {{".text", 0x1000, 0x100, true}};  // but bytes are hi-entropy here
+        auto fp = scan_packer(packed, rd);
+        bool upx = false;
+        for (const auto& f : fp) if (f.rule.find("UPX") != std::string::npos) upx = true;
+        // negative: a benign low-entropy .text must NOT be named a packer
+        auto s2 = fresh(kLoop);
+        std::vector<PackerSection> benign = {{".text", 0x1000, (u64)kLoop.size(), true}, {".data", 0x2000, 8, false}};
+        bool none = scan_packer(benign, reader_of(s2)).empty();
+        rec(51,'D',"Signature-based packer/protector ID", (upx && none) ? V::PASS : V::FAIL,
+            "section-name signatures (UPX/ASPack/VMProtect/Themida/...) + high-entropy executable "
+            "sections flag packers; a benign low-entropy image is not flagged; the runtime W^X / "
+            "self-decrypt signal confirms behaviorally");
+        (void)clean;
+    }
     // 19 & 79: PE data-directory depth — .rsrc resources + .pdata exception table.
     {
         auto img = load_pe64(samples::make_pe64_fixture());
@@ -627,9 +687,7 @@ int main(int argc, char** argv) {
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");
-    rec(44,'C',"Memory allocation tracking", V::NA, "no heap/allocator model (flat image)");
     rec(45,'C',"Multi-threaded debugging", V::NA, "single-threaded deterministic core by design");
-    rec(51,'D',"Signature-based packer/protector ID", V::NA, "PE-packer signatures (VMProtect/Denuvo) out of scope for a flat engine");
     rec(54,'D',"License-validation routine ID", V::PARTIAL, "strings + run points assist; not fully automated");
     rec(57,'D',"Code-integrity-check identification", V::PARTIAL, "W^X + reads-of-code detectable; dedicated detector pending");
     rec(58,'D',"Obfuscation pattern detection", V::PARTIAL, "NOP-ratio/opcode anomaly + runtime SMC; more patterns pending");

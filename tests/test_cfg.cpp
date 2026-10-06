@@ -335,4 +335,21 @@ TEST("function discovery finds a never-called function and rejects non-prologue 
     CHECK(fns.size() > build_call_graph(Arch::X86_64, rd, 0x1000).funcs.size());
 }
 
+TEST("packer detector flags UPX section names, not a benign image") {
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, std::vector<u8>(0x100, 0x90), perm::RWX);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    std::vector<PackerSection> packed = {{"UPX0", 0x1000, 0x100, false}, {"UPX1", 0x1000, 0x100, true}};
+    bool upx = false;
+    for (const auto& f : scan_packer(packed, rd)) if (f.rule.find("UPX") != std::string::npos) upx = true;
+    CHECK(upx);
+    std::vector<PackerSection> benign = {{".text", 0x1000, 0x100, true}};  // low-entropy NOPs
+    CHECK(scan_packer(benign, rd).empty());
+}
+
 int main() { return dede::test::run_all(); }
