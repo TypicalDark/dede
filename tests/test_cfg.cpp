@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
+#include <algorithm>
 #include <vector>
 
 #include "check.hpp"
 #include "dede/analysis/callstack.hpp"
 #include "dede/analysis/scan.hpp"
+#include "dede/analysis/xrefs.hpp"
 #include "dede/session/analysis_session.hpp"
 
 using namespace dede;
@@ -277,6 +279,60 @@ TEST("call-stack unwinder recovers frames and flags a smashed return address") {
     auto bad = check_stack_integrity(*dis, rd, s.rip(), s.read_reg(Reg::Rbp));
     CHECK(!bad.intact());
     CHECK(!bad.violations.empty());
+}
+
+TEST("xref index records call + data references and answers who-references-this") {
+    // mov rax,0x15 ; call 0x1015 ; lea rsi,[rip+0x0a] ; hlt ; pad ; f: shl rax,1; ret ; "hi"
+    std::vector<u8> prog = {
+        0x48,0xC7,0xC0,0x15,0,0,0,            // 0x1000 mov rax,0x15
+        0xE8,0x09,0,0,0,                      // 0x1007 call 0x1015
+        0x48,0x8D,0x35,0x0A,0,0,0,            // 0x100c lea rsi,[rip+0x0a] -> 0x101d
+        0xF4,0x90,                            // 0x1013 hlt ; pad
+        0x55,0x48,0x89,0xE5,0x48,0xD1,0xE0,0x5D,0xC3,  // 0x1015 push rbp;mov rbp,rsp;shl rax,1;pop rbp;ret
+        'h','i',0 };                          // 0x101e string
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, prog, perm::RWX);
+    s.set_entry(0x1000);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    auto xr = build_xrefs(Arch::X86_64, rd, 0x1000, 0x1000 + prog.size());
+    auto callers = refs_to(xr, 0x1015);
+    CHECK_EQ(callers.size(), 1u);
+    CHECK(callers[0].kind == XrefKind::Call);
+    CHECK_EQ(callers[0].from, 0x1007u);
+    // the lea produces an address-of (string) xref to 0x101d
+    bool addr_of = false;
+    for (const auto& x : xr) if (x.to == 0x101d && x.kind == XrefKind::AddrOf) addr_of = true;
+    CHECK(addr_of);
+}
+
+TEST("function discovery finds a never-called function and rejects non-prologue bytes") {
+    std::vector<u8> prog = {
+        0x55,0x48,0x89,0xE5, 0xE8,0x02,0,0,0, 0x5D,0xC3,            // 0x1000 main -> call f1
+        0x55,0x48,0x89,0xE5, 0x48,0xC7,0xC0,0x01,0,0,0, 0x5D,0xC3,  // 0x100b f1
+        0x55,0x48,0x89,0xE5, 0x48,0xC7,0xC0,0x02,0,0,0, 0x5D,0xC3,  // 0x1018 f2 (never called)
+        0x55,0x5D,0x90 };                                           // 0x1025 push rbp;pop rbp (NOT a prologue)
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.load(0x1000, prog, perm::RWX);
+    s.set_entry(0x1000);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        if (!b) return std::nullopt;
+        return static_cast<u8>(b.value());
+    };
+    auto fns = discover_functions(Arch::X86_64, rd, 0x1000, 0x1000 + prog.size(), {0x1000});
+    auto has_fn = [&](Addr a) { return std::find(fns.begin(), fns.end(), a) != fns.end(); };
+    CHECK(has_fn(0x1000));
+    CHECK(has_fn(0x100b));
+    CHECK(has_fn(0x1018));   // the never-called function, found via its prologue
+    CHECK(!has_fn(0x1025));  // push rbp; pop rbp is not a frame prologue
+    // finds more than the entry-reachable call graph (which misses f2)
+    CHECK(fns.size() > build_call_graph(Arch::X86_64, rd, 0x1000).funcs.size());
 }
 
 int main() { return dede::test::run_all(); }

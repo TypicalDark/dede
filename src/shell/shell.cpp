@@ -11,6 +11,7 @@
 #include "dede/analysis/arch_view.hpp"
 #include "dede/analysis/callstack.hpp"
 #include "dede/analysis/scan.hpp"
+#include "dede/analysis/xrefs.hpp"
 #include "dede/loader/loader.hpp"
 
 namespace dede {
@@ -155,6 +156,8 @@ bool Shell::execute(const std::string& line) {
             "  find <start> <len> X     search memory (hex bytes or \"string\")\n"
             "  stack [n]                telescope the stack\n"
             "  backtrace | bt           unwind the call stack + check return-address integrity\n"
+            "  xref <addr>              list code/data references to an address\n"
+            "  functions | funcs        discover function entries (symbols + xrefs + prologues)\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -514,6 +517,32 @@ bool Shell::execute(const std::string& line) {
         double h = shannon_entropy(reader, arg_u64(1, 0), arg_u64(2, 0));
         out_ << "entropy = " << h << " bits/byte "
              << (h > 7.0 ? "(high — encrypted/compressed)" : h < 1.0 ? "(very low)" : "(normal)") << "\n";
+        return true;
+    }
+    if (cmd == "xref" || cmd == "xrefs") {
+        if (tok.size() < 2) { out_ << "usage: xref <addr>   (who references this address)\n"; return true; }
+        Addr target = arg_u64(1, 0);
+        std::vector<Xref> all;
+        for (const auto& rg : s_.memory_map()) {           // sweep every mapped region
+            auto xr = build_xrefs(s_.arch(), reader, rg.base, rg.base + rg.size);
+            all.insert(all.end(), xr.begin(), xr.end());
+        }
+        auto hits = refs_to(all, target);
+        out_ << hits.size() << " reference(s) to " << hex(target) << annotate(target) << "\n";
+        for (const auto& x : hits)
+            out_ << "  " << hex(x.from) << annotate(x.from) << "  [" << to_string(x.kind) << "]\n";
+        return true;
+    }
+    if (cmd == "functions" || cmd == "funcs") {
+        auto regs = s_.memory_map();
+        std::vector<Addr> fns;
+        for (const auto& rg : regs)
+            if (rg.perms & perm::X) {
+                auto f = discover_functions(s_.arch(), reader, rg.base, rg.base + rg.size, {s_.rip()});
+                fns.insert(fns.end(), f.begin(), f.end());
+            }
+        out_ << fns.size() << " function(s) discovered:\n";
+        for (Addr f : fns) out_ << "  " << hex(f) << annotate(f) << "\n";
         return true;
     }
     if (cmd == "backtrace" || cmd == "bt") {

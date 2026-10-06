@@ -23,6 +23,7 @@
 
 #include "dede/analysis/callstack.hpp"
 #include "dede/analysis/scan.hpp"
+#include "dede/analysis/xrefs.hpp"
 #include "dede/loader/loader.hpp"
 #include "dede/session/analysis_session.hpp"
 #include "dede/types/types.hpp"
@@ -458,12 +459,40 @@ void run_dynamic_checks() {
         rec(56,'D',"Anti-VM code detection", has("anti-vm")?V::PASS:V::FAIL, "detected cpuid + sidt (Red Pill)");
         rec(62,'D',"Timing-based validation detection", has("timing")?V::PASS:V::FAIL, "timing detector flagged rdtsc");
     }
-    // 2: strings
+    // 2: strings + automated cross-referencing (who references this string?)
     {
-        auto s = fresh(kLoop);
-        s.core().memory().write(0x2000, std::vector<u8>{'l','i','c','e','n','s','e',0,'o','k',0});
-        auto ss = extract_strings(reader_of(s), 0x2000, 0x40, 4);
-        rec(2,'A',"String analysis + filtering", !ss.empty()?V::PARTIAL:V::FAIL, "extract_strings()+filter+`find`; cross-reference not automated");
+        // lea rsi,[rip+7] -> 0x100e ; hlt ; pad ; "license\0"
+        std::vector<u8> prog = {0x48,0x8D,0x35,0x07,0,0,0, 0xF4,0x90,0x90,0x90,0x90,0x90,0x90,
+                                'l','i','c','e','n','s','e',0};
+        auto s = fresh(prog);
+        auto rd = reader_of(s);
+        auto ss = extract_strings(rd, 0x1000, prog.size(), 4);
+        auto xr = build_xrefs(Arch::X86_64, rd, 0x1000, 0x1000 + prog.size());
+        bool found = false; Addr str_addr = 0;
+        for (const auto& e : ss) if (e.text.find("license") != std::string::npos) { found = true; str_addr = e.addr; }
+        bool xref_ok = found && !refs_to(xr, str_addr).empty();  // a code referrer to the string
+        rec(2,'A',"String analysis + filtering", xref_ok ? V::PASS : (found ? V::PARTIAL : V::FAIL),
+            "extract_strings + filter + `find`, plus automated string cross-referencing: a string's "
+            "code referrers are recovered from the xref index (rip-relative/absolute + lea)");
+    }
+    // 7: function entry identification (symbols ∪ call-targets ∪ validated prologues)
+    {
+        std::vector<u8> prog = {
+            0x55,0x48,0x89,0xE5, 0xE8,0x02,0,0,0, 0x5D,0xC3,            // 0x1000 main -> call f1
+            0x55,0x48,0x89,0xE5, 0x48,0xC7,0xC0,0x01,0,0,0, 0x5D,0xC3,  // 0x100b f1
+            0x55,0x48,0x89,0xE5, 0x48,0xC7,0xC0,0x02,0,0,0, 0x5D,0xC3,  // 0x1018 f2 (never called)
+            0x55,0x5D,0x90 };                                           // 0x1025 push rbp;pop rbp (NOT a prologue)
+        auto s = fresh(prog);
+        auto rd = reader_of(s);
+        auto fns = discover_functions(Arch::X86_64, rd, 0x1000, 0x1000 + prog.size(), {0x1000});
+        auto has_fn = [&](Addr a) { return std::find(fns.begin(), fns.end(), a) != fns.end(); };
+        bool all3 = has_fn(0x1000) && has_fn(0x100b) && has_fn(0x1018);  // incl. the never-called f2
+        bool neg = !has_fn(0x1025);                                      // 55 5D is not a frame prologue
+        bool beats = fns.size() > build_call_graph(Arch::X86_64, rd, 0x1000).funcs.size();  // finds more than entry-reachable
+        rec(7,'A',"Function prologue/boundary ID", (all3 && neg && beats) ? V::PASS : V::FAIL,
+            "function entries recovered as the union of loader symbols, call targets, and decode-"
+            "validated prologues (push rbp;mov rbp,rsp / endbr64) — including functions not reached "
+            "from the entry (a never-called f2 is found); boundaries via per-entry CFG reach");
     }
     // 83: memory map
     {
@@ -573,7 +602,6 @@ int main(int argc, char** argv) {
     run_dynamic_checks();
 
     // --- static capability verdicts (feature present / close analog) --------
-    rec(7,'A',"Function prologue/boundary ID", V::PARTIAL, "CFG/call-graph recover function blocks; no prologue-signature pass");
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
