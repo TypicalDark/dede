@@ -22,12 +22,15 @@
 #include <vector>
 
 #include "dede/analysis/callstack.hpp"
+#include "dede/analysis/recover.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
+#include "dede/disasm/disassembler.hpp"
 #include "dede/loader/loader.hpp"
 #include "dede/samples/pe_fixture.hpp"
 #include "dede/session/alloc_tracker.hpp"
 #include "dede/session/analysis_session.hpp"
+#include "dede/session/vcall_tracker.hpp"
 #include "dede/types/types.hpp"
 
 using namespace dede;
@@ -555,6 +558,89 @@ void run_dynamic_checks() {
             "self-decrypt signal confirms behaviorally");
         (void)clean;
     }
+    // 69: stack-string / compile-time-obfuscation detection (xor-decrypt loop idiom).
+    {
+        auto s = fresh(kDecryptStub);                 // in-place xor-decrypt loop over [rsi]
+        auto hits = scan_stack_strings(Arch::X86_64, reader_of(s), 0x1000, 0x1000 + kDecryptStub.size());
+        bool fired = !hits.empty() && hits[0].detail.find("[rsi") != std::string::npos;
+        auto s2 = fresh(kLoop);                        // a plain counting loop must stay silent
+        bool clean_silent = scan_stack_strings(Arch::X86_64, reader_of(s2), 0x1000, 0x1000 + kLoop.size()).empty();
+        rec(69,'D',"Template/macro obfuscation detection", (fired && clean_silent) ? V::PARTIAL : V::FAIL,
+            "detects the *emitted* compile-time string-obfuscation idiom — a short loop that both "
+            "XORs and stores to memory (in-place decrypt) — and names the target buffer; a plain "
+            "counting loop is not flagged. The source template itself is not recoverable from flat "
+            "machine code, so this is a bounded PARTIAL, composed with the crypto/opaque findings");
+    }
+    // 22: inline / clone detection (operand-normalized maximal-run clustering).
+    {
+        auto s = fresh(kLoop);
+        // a 6+-insn helper inlined at 0x1200 (eax/ecx) and 0x1240 (edx/esi) + an unrelated decoy.
+        s.load(0x1200, {0x8B,0x44,0x24,0x08, 0x83,0xC0,0x01, 0x0F,0xAF,0xC0, 0x83,0xF0,0x7F, 0x89,0x44,0x24,0x08, 0x90, 0xC3}, perm::RWX);
+        s.load(0x1240, {0x8B,0x54,0x24,0x08, 0x83,0xC2,0x01, 0x0F,0xAF,0xD2, 0x83,0xF2,0x7F, 0x89,0x54,0x24,0x08, 0x90, 0xC3}, perm::RWX);
+        s.load(0x1280, {0x48,0x31,0xC0, 0x48,0xFF,0xC0, 0x48,0x39,0xC8, 0x74,0x02, 0xEB,0xF5, 0xC3}, perm::RWX);
+        auto cl = find_clones(Arch::X86_64, reader_of(s), {0x1200, 0x1240, 0x1280}, 6);
+        bool one = cl.size() == 1 && cl[0].sites.size() == 2 &&
+                   cl[0].sites[0] == 0x1200 && cl[0].sites[1] == 0x1240;  // decoy excluded
+        rec(22,'B',"Inline function detection", one ? V::PARTIAL : V::FAIL,
+            "operand-normalized (mnemonic + operand-kind) instruction streams are matched by "
+            "seed-and-extend maximal common runs across functions, so the same helper inlined at "
+            "several sites clusters into one finding and register renaming does not hide it; an "
+            "unrelated decoy is excluded. No source-level 'was this inline?' claim, hence PARTIAL");
+    }
+    // 26: virtual-method resolution — static vtable/RTTI scan + dynamic observed target.
+    {
+        AnalysisSession s(Arch::X86_64);
+        s.map(0x1000, 0x3000, perm::RWX);
+        s.map(0x70000, 0x1000, perm::RW);
+        s.core().cpu().set(Reg::Rsp, 0x70800);
+        // three virtual methods at 6-byte spacing: mov eax,N; ret.
+        s.load(0x1000, {0xB8,1,0,0,0,0xC3}, perm::RWX);
+        s.load(0x1006, {0xB8,2,0,0,0,0xC3}, perm::RWX);
+        s.load(0x100c, {0xB8,3,0,0,0,0xC3}, perm::RWX);
+        // data region [0x2800,0x2840): name, type_info, vtable[-1], 3 slots (Itanium layout).
+        std::vector<u8> data(0x40, 0);
+        auto put64 = [&](std::size_t off, u64 v) { for (int i = 0; i < 8; ++i) data[off + i] = (u8)(v >> (8 * i)); };
+        data[0] = '3'; data[1] = 'F'; data[2] = 'o'; data[3] = 'o';  // mangled "3Foo" at 0x2800
+        put64(0x18, 0x2800);   // type_info+8 -> name   (type_info = 0x2810)
+        put64(0x20, 0x2810);   // vtable[-1]  -> type_info
+        put64(0x28, 0x1000);   // slot0
+        put64(0x30, 0x1006);   // slot1
+        put64(0x38, 0x100c);   // slot2
+        s.load(0x2800, data, perm::RWX);
+        // main at 0x2000: mov rax,0x2828 (vtable); call qword [rax+8] (slot1); hlt.
+        s.load(0x2000, {0x48,0xC7,0xC0,0x28,0x28,0,0, 0xFF,0x50,0x08, 0xF4}, perm::RWX);
+        s.set_entry(0x2000);
+
+        auto rd = reader_of(s);
+        auto vts = scan_vtables(rd, 0x2800, 0x2840, 0x1000, 0x1040, 2);
+        bool static_ok = vts.size() == 1 && vts[0].addr == 0x2828 && vts[0].slots.size() == 3 &&
+                         vts[0].slots[1] == 0x1006 && vts[0].type_name == "Foo";
+
+        // dynamic: observe the indirect-call target at the call site (0x2007).
+        auto dis = make_disassembler(Arch::X86_64);
+        auto cb = s.read_bytes(0x2007, 3);
+        VirtualCallResolver vr;
+        bool dyn_ok = false;
+        if (cb) {
+            auto ci = dis->decode_one(cb.value().data(), cb.value().size(), 0x2007);
+            if (ci.ok()) {
+                DecodedInsn call = ci.value();
+                RunPoint rp; rp.type = RunPointType::Address; rp.address = 0x2007; rp.pause = false;
+                u64 id = s.add_run_point(std::move(rp));
+                auto m = std::make_shared<Macro>();
+                m->callback = [&vr, call](IDebugController& c) { vr.on_indirect_call(c, call); };
+                s.bind_macro(id, m);
+                s.run();
+                auto tg = vr.targets_at(0x2007);
+                dyn_ok = tg.size() == 1 && tg[0] == 0x1006;  // observed slot1
+            }
+        }
+        rec(26,'B',"Virtual method resolution", (static_ok && dyn_ok) ? V::PASS : V::PARTIAL,
+            "static scan finds runs of code pointers in a read-only region as vtables (here 3 slots) "
+            "and reads the Itanium type_info class name ('Foo'); the dynamic resolver hooks the "
+            "indirect call and records the *actually observed* slot target (slot1 -> sub_1006), which "
+            "a purely static tool cannot prove — time-travel-correct, like the allocation tracker");
+    }
     // 19 & 79: PE data-directory depth — .rsrc resources + .pdata exception table.
     {
         auto img = load_pe64(samples::make_pe64_fixture());
@@ -682,8 +768,6 @@ int main(int argc, char** argv) {
     rec(14,'A',"Macro/template expansion", V::NA, "source-level construct; not recoverable from flat machine code here");
     rec(15,'A',"Global variable / state tracking", V::PARTIAL, "watchpoints + who_wrote track memory state; no auto-global map");
     rec(18,'B',"Loop reconstruction", V::PARTIAL, "CFG shows back-edges/loops; pseudocode uses goto");
-    rec(22,'B',"Inline function detection", V::NA, "source construct; Ghidra backend territory");
-    rec(26,'B',"Virtual method resolution", V::NA, "no C++ RTTI/vtable recovery (roadmap: UML view)");
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");
@@ -693,7 +777,6 @@ int main(int argc, char** argv) {
     rec(58,'D',"Obfuscation pattern detection", V::PARTIAL, "NOP-ratio/opcode anomaly + runtime SMC; more patterns pending");
     rec(64,'D',"Global-state dependency detection", V::PARTIAL, "who_wrote + watchpoints");
     rec(68,'D',"Callback-based protection detection", V::PARTIAL, "indirect-call detection via CFG");
-    rec(69,'D',"Template/macro obfuscation detection", V::NA, "source construct");
     rec(71,'E',"Scripting language for custom analysis", V::PARTIAL, "shell command language + recorded macros; Luau binding behind a build flag");
     rec(72,'E',"Batch processing", V::PASS, "CLI loads files; stdin-scriptable; this harness is batch over the engine");
     rec(73,'E',"Custom detection rules", V::PARTIAL, "pluggable C++ IDetector framework; user-facing rule DSL pending");

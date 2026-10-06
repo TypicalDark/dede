@@ -79,7 +79,7 @@ if(DEDE_WITH_GHIDRA)
   target_compile_definitions(dede_decompiler PUBLIC DEDE_WITH_GHIDRA)
 endif()
 
-dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp src/analysis/scan.cpp src/analysis/callstack.cpp src/analysis/xrefs.cpp DEPS dede_disasm)
+dede_library(dede_analysis SRCS src/analysis/cfg.cpp src/analysis/arch_view.cpp src/analysis/scan.cpp src/analysis/callstack.cpp src/analysis/xrefs.cpp src/analysis/recover.cpp DEPS dede_disasm)
 
 # Decompiler IR: lifter + reference evaluator (see docs/DECOMPILER.md, M1+).
 dede_library(dede_ir SRCS src/ir/ir.cpp src/ir/lifter.cpp src/ir/eval.cpp DEPS dede_analysis)

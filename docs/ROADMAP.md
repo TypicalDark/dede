@@ -117,7 +117,7 @@ Deduplicated across the four tools (many gaps recur). **Feasible** = fits dede's
 | **19 Exception-handler visualization** | **achievable-bounded** | static `.pdata`/`.xdata` tables + existing SEH detector; → **PARTIAL** (Batch 2). Live SEH dispatch stays out-of-scope |
 | **51 Packer/protector ID** | **achievable-bounded** | entropy + section names + EP stub + W^X; → **PARTIAL/PASS** (Batch 3) |
 | **69 Template/macro *obfuscation* detection** | **achievable-bounded** | detect the emitted obfuscation (stack-string xor, opaque predicates), not the source; → **PARTIAL** (Batch 4) |
-| **26 Virtual-method resolution** | **achievable-large** | static vtable scan + **dynamic** observed-target resolution (dede can beat static tools here); → **PARTIAL+** (Batch 4) |
+| **26 Virtual-method resolution** | **achievable-large** | static vtable scan + **dynamic** observed-target resolution (dede can beat static tools here); → **PASS** (Batch 4, static vtable + Itanium name + observed slot target) |
 | **22 Inline-function detection** | **achievable-large** | clone detection via normalized-hash clustering; → **PARTIAL** (Batch 4) |
 | **80 Cross-tool DB import** | **achievable-large** | a JSON interchange + IDAPython/BN exporter snippets (BNDB=SQLite later; IDB research); → **PARTIAL** (Batch 7) |
 | 14 Macro expansion · 27 Lambda/closure · 28 Macro-param subst. | **out-of-scope** | erased by the preprocessor/front-end before codegen; no residue in machine code |
@@ -136,7 +136,7 @@ Ordered by value-per-effort. Each batch is independently shippable, lands with t
 A shared enabler used by several batches is an **AnalysisDB / Blackboard fact store** (already
 specified in `docs/PATTERNS.md`): an address-keyed store for xrefs, names, comments, types.
 
-### Batch 1 — Static knowledge layer *(HIGH · bounded)*
+### Batch 1 — Static knowledge layer *(HIGH · bounded)* — ✅ shipped
 Build the AnalysisDB, then populate it.
 - **T1.1 Xref database** — linear-sweep decode of executable ranges; record code xrefs
   (call/jmp targets) + data xrefs (rip-rel/absolute mem operands, `lea`/imm address-taking);
@@ -150,7 +150,7 @@ Build the AnalysisDB, then populate it.
   a non-returning callee doesn't mis-split; negative test (prologue-shaped data not flagged);
   **#7 → PASS**.
 
-### Batch 2 — PE format depth *(bounded)*
+### Batch 2 — PE format depth *(bounded)* — ✅ shipped
 - **T2.1 PE data-directory parsing** — read optional-header `NumberOfRvaAndSizes` + directory
   array in `load_pe64` (shared enabler for T2.2/T2.3).
 - **T2.2 Resource extraction (.rsrc)** — walk the 3-level resource tree; `resources` list +
@@ -160,7 +160,7 @@ Build the AnalysisDB, then populate it.
   `seh`/`exceptions` cmd; fold in the existing `fs:[0]` detector; annotate covered ranges.
   _Done:_ fixture ranges+handler RVA parsed; `fs:[0]` chains still reported; **#19 → PARTIAL**.
 
-### Batch 3 — Dynamic observers *(bounded)*
+### Batch 3 — Dynamic observers *(bounded)* — ✅ shipped
 - **T3.1 Allocation tracker** — `IEventObserver` over syscall + malloc/free/realloc run-points;
   live map {base,size,alloc_tick,free_tick}; `allocs`, `leaks`, double-free/unknown-free flags;
   replay-safe. _Done:_ two mmaps/one munmap → one live+one freed with correct ticks; stepping
@@ -170,18 +170,22 @@ Build the AnalysisDB, then populate it.
   _Done:_ UPX0/UPX1 + high-entropy fixture named "UPX (heuristic)"; clean control silent;
   **#51 → PARTIAL** (PASS when sig+entropy+W^X agree).
 
-### Batch 4 — Obfuscation + C++ recovery *(bounded → large)*
+### Batch 4 — Obfuscation + C++ recovery *(bounded → large)* — ✅ shipped
+Code in `analysis/recover.{hpp,cpp}` (static) + `session/vcall_tracker.hpp` (dynamic); shell
+`stackstrings`/`obf`, `clones`, `vtables`; tested in `test_cfg.cpp`.
 - **T4.1 Stack-string / compile-time-obfuscation detector** — recognize the xor-decrypt-loop
-  idiom; compose with crypto + opaque-predicate findings. _Done:_ fixture fires with buffer
-  addr; clean control silent; **#69 → PARTIAL** (reworded, no source-attribution claim).
-- **T4.2 Inline/clone detection** — operand-normalized mnemonic stream + rolling-hash window
-  clustering across functions. _Done:_ a 6-insn helper inlined at 2 sites + a decoy → exactly
-  one cluster covering the 2 sites, stable under register renaming; **#22 → PARTIAL**.
-- **T4.3 vtable/RTTI + virtual-call resolution** — static scan (runs of code pointers in RO
-  sections → `Vtable{addr,slots}`, Itanium type_info name); dynamic observed-target resolver on
-  indirect calls; decompiler annotates `(*vptr->slot_N)() /* observed: sub_X */`. _Done:_
-  fixture vtable (3 slots) found statically, slot target observed dynamically, call annotated;
-  **#26 → PARTIAL** (PASS with Itanium class names).
+  idiom; compose with crypto + opaque-predicate findings. _Done:_ `scan_stack_strings` fires on
+  the in-place decrypt loop and names the target buffer; a plain counting loop stays silent;
+  **#69 → PARTIAL** (reworded, no source-attribution claim). ✅
+- **T4.2 Inline/clone detection** — operand-normalized (mnemonic + operand-kind) token streams,
+  seed-and-extend maximal common runs across functions. _Done:_ a 6-insn helper inlined at 2
+  sites (different registers) + a decoy → exactly one cluster covering the 2 sites, decoy
+  excluded; **#22 → PARTIAL**. ✅
+- **T4.3 vtable/RTTI + virtual-call resolution** — `scan_vtables` finds runs of code pointers in
+  a read-only region → `Vtable{addr,slots}` + Itanium type_info class name; `VirtualCallResolver`
+  hooks indirect calls and records the observed slot target (time-travel-correct). _Done:_
+  fixture vtable (3 slots) found statically with name "Foo", slot1 target `sub_1006` observed
+  dynamically; **#26 → PASS** (static vtable + Itanium name + dynamic target). ✅
 
 ### Batch 5 — Decompiler data-flow *(HIGH · large)* — tasks #22/#23
 - **T5.1 SSA** — dominator tree over the CFG, Cytron phi placement, Vn def/use versioning.

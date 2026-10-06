@@ -4,6 +4,7 @@
 
 #include "check.hpp"
 #include "dede/analysis/callstack.hpp"
+#include "dede/analysis/recover.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
 #include "dede/session/analysis_session.hpp"
@@ -350,6 +351,82 @@ TEST("packer detector flags UPX section names, not a benign image") {
     CHECK(upx);
     std::vector<PackerSection> benign = {{".text", 0x1000, 0x100, true}};  // low-entropy NOPs
     CHECK(scan_packer(benign, rd).empty());
+}
+
+TEST("stack-string detector flags an xor-decrypt loop, not a plain loop") {
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    // xor rcx,rcx; L: mov al,[rbp+rcx-0x10]; xor al,0x5a; mov [rbp+rcx-0x10],al;
+    //               inc rcx; cmp rcx,4; jl L; hlt
+    s.load(0x1000, {0x48,0x31,0xC9, 0x8A,0x44,0x0D,0xF0, 0x34,0x5A, 0x88,0x44,0x0D,0xF0,
+                    0x48,0xFF,0xC1, 0x48,0x83,0xF9,0x04, 0x7C,0xED, 0xF4}, perm::RWX);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        return b ? std::optional<u8>(static_cast<u8>(b.value())) : std::nullopt;
+    };
+    auto hits = scan_stack_strings(Arch::X86_64, rd, 0x1000, 0x1017);
+    CHECK_EQ(hits.size(), 1u);
+    CHECK(hits[0].detail.find("[rbp") != std::string::npos);  // names the buffer
+
+    // a plain counting loop (no xor + store) is silent.
+    AnalysisSession c(Arch::X86_64);
+    c.map(0x1000, 0x1000, perm::RWX);
+    c.load(0x1000, {0x48,0xFF,0xC9, 0x75,0xFB, 0xF4}, perm::RWX);  // dec rcx; jnz -5; hlt
+    auto rc = [&c](Addr a) -> std::optional<u8> {
+        auto b = c.read_mem(a, 1);
+        return b ? std::optional<u8>(static_cast<u8>(b.value())) : std::nullopt;
+    };
+    CHECK(scan_stack_strings(Arch::X86_64, rc, 0x1000, 0x1006).empty());
+}
+
+TEST("clone detection clusters an inlined helper across functions, excludes a decoy") {
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    // same 6-insn helper at two sites with different registers, plus an unrelated decoy.
+    s.load(0x1200, {0x8B,0x44,0x24,0x08, 0x83,0xC0,0x01, 0x0F,0xAF,0xC0, 0x83,0xF0,0x7F,
+                    0x89,0x44,0x24,0x08, 0x90, 0xC3}, perm::RWX);
+    s.load(0x1240, {0x8B,0x54,0x24,0x08, 0x83,0xC2,0x01, 0x0F,0xAF,0xD2, 0x83,0xF2,0x7F,
+                    0x89,0x54,0x24,0x08, 0x90, 0xC3}, perm::RWX);
+    s.load(0x1280, {0x48,0x31,0xC0, 0x48,0xFF,0xC0, 0x48,0x39,0xC8, 0x74,0x02, 0xEB,0xF5, 0xC3}, perm::RWX);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        return b ? std::optional<u8>(static_cast<u8>(b.value())) : std::nullopt;
+    };
+    auto cl = find_clones(Arch::X86_64, rd, {0x1200, 0x1240, 0x1280}, 6);
+    CHECK_EQ(cl.size(), 1u);                 // exactly one clone cluster
+    CHECK_EQ(cl[0].sites.size(), 2u);        // the two helper sites
+    CHECK_EQ(cl[0].sites[0], 0x1200u);
+    CHECK_EQ(cl[0].sites[1], 0x1240u);
+    CHECK(cl[0].window >= 6u);               // the matched run is at least the helper
+}
+
+TEST("vtable scan recovers slots and the Itanium type name") {
+    CHECK_EQ(itanium_demangle_name("3Foo"), std::string("Foo"));
+    CHECK_EQ(itanium_demangle_name("N3abc3defE"), std::string("abc::def"));
+    CHECK(itanium_demangle_name("garbage").empty());
+
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x3000, perm::RWX);
+    s.load(0x1000, {0xB8,1,0,0,0,0xC3}, perm::RWX);  // three code targets
+    s.load(0x1006, {0xB8,2,0,0,0,0xC3}, perm::RWX);
+    s.load(0x100c, {0xB8,3,0,0,0,0xC3}, perm::RWX);
+    std::vector<u8> data(0x40, 0);
+    auto put64 = [&](std::size_t off, u64 v) { for (int i = 0; i < 8; ++i) data[off + i] = (u8)(v >> (8 * i)); };
+    data[0] = '3'; data[1] = 'F'; data[2] = 'o'; data[3] = 'o';
+    put64(0x18, 0x2800);   // type_info+8 -> name
+    put64(0x20, 0x2810);   // vtable[-1]  -> type_info
+    put64(0x28, 0x1000); put64(0x30, 0x1006); put64(0x38, 0x100c);  // slots
+    s.load(0x2800, data, perm::RWX);
+    auto rd = [&s](Addr a) -> std::optional<u8> {
+        auto b = s.read_mem(a, 1);
+        return b ? std::optional<u8>(static_cast<u8>(b.value())) : std::nullopt;
+    };
+    auto vts = scan_vtables(rd, 0x2800, 0x2840, 0x1000, 0x1040, 2);
+    CHECK_EQ(vts.size(), 1u);
+    CHECK_EQ(vts[0].addr, 0x2828u);
+    CHECK_EQ(vts[0].slots.size(), 3u);
+    CHECK_EQ(vts[0].slots[1], 0x1006u);
+    CHECK_EQ(vts[0].type_name, std::string("Foo"));
 }
 
 int main() { return dede::test::run_all(); }

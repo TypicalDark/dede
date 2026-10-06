@@ -10,6 +10,7 @@
 
 #include "dede/analysis/arch_view.hpp"
 #include "dede/analysis/callstack.hpp"
+#include "dede/analysis/recover.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
 #include "dede/loader/loader.hpp"
@@ -161,6 +162,9 @@ bool Shell::execute(const std::string& line) {
             "  resources | rsrc         list PE .rsrc resources (resource dump <i> <path> extracts)\n"
             "  seh | exceptions         list PE .pdata exception table + scanned fs:[0] handlers\n"
             "  packer                   identify packers (section signatures + high entropy)\n"
+            "  stackstrings | obf       detect xor-decrypt loops (compile-time string obfuscation)\n"
+            "  clones [window]          cluster inlined/cloned code fragments across functions\n"
+            "  vtables | vtable         scan for C++ vtables (code-pointer runs + Itanium RTTI name)\n"
             "  watch <addr>             break on write to an address\n"
             "  who <addr> [size]        which instruction last wrote it (time-travel)\n"
             "  history [n]              recent execution events\n"
@@ -573,6 +577,55 @@ bool Shell::execute(const std::string& line) {
         auto f = scan_packer(ps, reader);
         out_ << f.size() << " packer finding(s):\n";
         for (const auto& x : f) out_ << "  [" << x.severity << "] " << x.rule << " @ " << hex(x.addr) << "\n";
+        return true;
+    }
+    if (cmd == "stackstrings" || cmd == "obf") {
+        std::size_t n = 0;
+        for (const auto& rg : s_.memory_map())
+            if (rg.perms & perm::X)
+                for (const auto& f : scan_stack_strings(s_.arch(), reader, rg.base, rg.base + rg.size)) {
+                    out_ << "  [" << f.severity << "] " << f.rule << " @ " << hex(f.addr) << "  " << f.detail << "\n";
+                    ++n;
+                }
+        out_ << n << " obfuscation finding(s)\n";
+        return true;
+    }
+    if (cmd == "clones") {
+        std::size_t win = tok.size() >= 2 ? static_cast<std::size_t>(arg_u64(1, 6)) : 6;
+        std::vector<Addr> fns;
+        for (const auto& rg : s_.memory_map())
+            if (rg.perms & perm::X) {
+                auto f = discover_functions(s_.arch(), reader, rg.base, rg.base + rg.size, {s_.rip()});
+                fns.insert(fns.end(), f.begin(), f.end());
+            }
+        auto cl = find_clones(s_.arch(), reader, fns, win);
+        out_ << cl.size() << " clone cluster(s) (window " << win << "):\n";
+        for (const auto& c : cl) {
+            out_ << "  run " << c.window << " insns @";
+            for (Addr a : c.sites) out_ << " " << hex(a);
+            out_ << "\n";
+        }
+        return true;
+    }
+    if (cmd == "vtables" || cmd == "vtable") {
+        // Code ranges are the executable regions; scan readable, non-exec regions for
+        // runs of pointers into code.
+        Addr code_lo = ~Addr{0}, code_hi = 0;
+        for (const auto& rg : s_.memory_map())
+            if (rg.perms & perm::X) { code_lo = std::min(code_lo, rg.base); code_hi = std::max(code_hi, rg.base + rg.size); }
+        std::size_t n = 0;
+        for (const auto& rg : s_.memory_map()) {
+            if (!(rg.perms & perm::R)) continue;
+            for (const auto& v : scan_vtables(reader, rg.base, rg.base + rg.size, code_lo, code_hi, 2)) {
+                out_ << "  vtable @ " << hex(v.addr) << "  slots=" << v.slots.size();
+                if (!v.type_name.empty()) out_ << "  type=" << v.type_name;
+                out_ << "\n";
+                for (std::size_t i = 0; i < v.slots.size(); ++i)
+                    out_ << "    [" << i << "] " << hex(v.slots[i]) << annotate(v.slots[i]) << "\n";
+                ++n;
+            }
+        }
+        out_ << n << " vtable(s)\n";
         return true;
     }
     if (cmd == "seh" || cmd == "exceptions") {
