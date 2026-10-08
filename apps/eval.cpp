@@ -942,11 +942,24 @@ int main(int argc, char** argv) {
     rec(85,'E',"Reporting / documentation generation", V::PASS, "this harness emits a Markdown report; CFG/arch DOT exports");
     rec(86,'F',"Workflow efficiency (<30 min)", V::PASS, "load->analyze->report is seconds for flat binaries");
     rec(87,'F',"Learning curve / documentation", V::PASS, "README + TUTORIAL (tiers 1-5) + ARCHITECTURE/PATTERNS/TRANSPARENCY docs");
-    rec(89,'F',"Architecture support", V::PARTIAL,
-        "x86-64 incl. an SSE/SSE2 subset — xmm register file; scalar + packed single/double float "
-        "math, 128-bit moves, packed-integer add/sub, bitwise, int<->float conversions, and "
-        "ordered/unordered compare (ucomisd sets EFLAGS), all bit-exact vs hand-computed vectors; "
-        "Abstract-Factory backend seam ready for other ISAs (ARM/32-bit remain future work)");
+    {
+        // 32-bit IA-32 mode: run a small program (push/pop/call/ret with 4-byte slots).
+        ExecutionCore c32(Arch::X86);
+        c32.memory().map(0x1000, 0x1000, perm::RX);
+        c32.memory().map(0x8000, 0x1000, perm::RW);
+        c32.cpu().set(Reg::Rsp, 0x8800);
+        c32.memory().write(0x1000, {0xB8,0x05,0,0,0, 0x50, 0x59, 0xE8,0x01,0,0,0, 0xF4, 0x01,0xC8, 0xC3});
+        c32.cpu().set_rip(0x1000);
+        for (int i = 0; i < 50; ++i) if (c32.step().status != StepOutcome::Status::Ok) break;
+        bool ia32 = (c32.cpu().get(Reg::Rax) & 0xffffffffu) == 10 && c32.cpu().get(Reg::Rsp) == 0x8800 &&
+                    c32.backend_name() == "builtin-x86";
+        rec(89,'F',"Architecture support", ia32 ? V::PARTIAL : V::FAIL,
+            "two x86 execution modes: x86-64 AND 32-bit IA-32 (CS_MODE_32 decode + 32-bit stack/"
+            "address semantics — 4-byte push/pop/call/ret, 4 GiB address wrap, verified by running a "
+            "32-bit call/ret program); plus an SSE/SSE2 subset (xmm file, scalar+packed float/int, "
+            "conversions, ucomisd flags, bit-exact). Abstract-Factory backend seam ready for other "
+            "ISAs; ARM/other families remain future work");
+    }
     rec(90,'F',"Large-binary performance", V::PARTIAL, "COW memory + caches; not yet validated at >500MB");
     rec(91,'F',"Plugin / extension ecosystem", V::PARTIAL, "IDetector + backend/decompiler factories; no dynamic plugin loader");
     rec(92,'F',"Community / knowledge base", V::NA, "new project");

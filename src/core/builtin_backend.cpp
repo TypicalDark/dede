@@ -79,10 +79,14 @@ u64 sign_extend(u64 v, unsigned from_bytes) {
 
 class BuiltinBackend final : public IExecutionBackend {
 public:
-    explicit BuiltinBackend(IDisassembler& disasm) : cache_(disasm) {}
+    explicit BuiltinBackend(IDisassembler& disasm) : cache_(disasm), arch_(disasm.arch()) {}
 
-    std::string name() const override { return "builtin-x86-64"; }
-    Arch arch() const override { return Arch::X86_64; }
+    std::string name() const override { return arch_ == Arch::X86 ? "builtin-x86" : "builtin-x86-64"; }
+    Arch arch() const override { return arch_; }
+
+    // Pointer / stack slot width and the address space mask for the mode.
+    unsigned ptr_bytes() const { return arch_ == Arch::X86 ? 4u : 8u; }
+    u64 addr_mask() const { return arch_ == Arch::X86 ? 0xffffffffull : ~0ull; }
 
     StepOutcome step(CpuState& cpu, MemoryProxy& mem, ITransparency& tr, IEventSink& sink,
                      const ExecContext& ctx) override {
@@ -153,7 +157,7 @@ private:
             a += (m.seg == SegReg::FS) ? static_cast<i64>(e.cpu.fs_base())
                                        : static_cast<i64>(e.cpu.gs_base());
         }
-        return static_cast<Addr>(a);
+        return static_cast<Addr>(static_cast<u64>(a) & addr_mask());  // 32-bit mode wraps at 4 GiB
     }
 
     static Seg to_seg(SegReg s) { return static_cast<Seg>(static_cast<u8>(s)); }
@@ -224,16 +228,20 @@ private:
     }
 
     // --- stack helpers -------------------------------------------------------
+    // Push/pop one stack slot — 8 bytes in 64-bit mode, 4 in 32-bit — adjusting
+    // (r/e)sp and masking the stack pointer to the address space.
     Result<void> push64(Exec& e, u64 v) {
-        u64 sp = e.cpu.get(Reg::Rsp) - 8;
+        unsigned w = ptr_bytes();
+        u64 sp = (e.cpu.get(Reg::Rsp) - w) & addr_mask();
         e.cpu.set(Reg::Rsp, sp);
-        return e.mem.write(sp, 8, v);
+        return e.mem.write(sp, w, v);
     }
     Result<u64> pop64(Exec& e) {
-        u64 sp = e.cpu.get(Reg::Rsp);
-        auto v = e.mem.read(sp, 8);
+        unsigned w = ptr_bytes();
+        u64 sp = e.cpu.get(Reg::Rsp) & addr_mask();
+        auto v = e.mem.read(sp, w);
         if (!v) return v;
-        e.cpu.set(Reg::Rsp, sp + 8);
+        e.cpu.set(Reg::Rsp, (sp + w) & addr_mask());
         return v;
     }
 
@@ -982,6 +990,7 @@ private:
     }
 
     DecodeCache cache_;  // Flyweight: shares decodes, versioned for SMC
+    Arch arch_;          // X86_64 or X86 (32-bit) — sets pointer/stack width + address mask
 };
 
 }  // namespace

@@ -25,10 +25,11 @@ using i64 = std::int64_t;
 using Addr = u64;      // guest virtual address
 using Tick = u64;      // retired-instruction counter (the timeline's unit)
 
-// The architecture we currently model end-to-end. The type system is written so
-// that adding another is a matter of a new Abstract-Factory branch, but today
-// only x86-64 has a concrete backend.
-enum class Arch { X86_64 };
+// The architecture we currently model end-to-end. X86_64 is the primary target;
+// X86 is 32-bit IA-32 (same decoder/interpreter, 32-bit stack + address
+// semantics). The type system is written so that adding another is a matter of
+// a new Abstract-Factory branch.
+enum class Arch { X86_64, X86 };
 
 // The sixteen x86-64 general-purpose registers, in encoding order, followed by
 // the two pieces of architectural state the built-in interpreter tracks.

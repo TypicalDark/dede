@@ -153,4 +153,39 @@ TEST("lea with an fs: override computes the offset, not offset+fs_base") {
     CHECK_EQ(core.cpu().get(Reg::Rax), 0x30u);  // offset only; fs base must NOT be folded in
 }
 
+TEST("32-bit (IA-32) mode: 4-byte stack, call/ret, arithmetic") {
+    ExecutionCore core(Arch::X86);
+    core.memory().map(0x1000, 0x1000, perm::RX);
+    core.memory().map(0x8000, 0x1000, perm::RW);  // 32-bit stack
+    core.cpu().set(Reg::Rsp, 0x8800);
+    // 0x1000 mov eax,5 ; 0x1005 push eax ; 0x1006 pop ecx ;
+    // 0x1007 call 0x100d (rel32=1, next=0x100c) ; 0x100c hlt ;
+    // 0x100d add eax,ecx (eax=10) ; 0x100f ret (pops ret addr 0x100c)
+    core.memory().write(0x1000, {0xB8, 0x05, 0x00, 0x00, 0x00,  // mov eax,5
+                                 0x50,                          // push eax
+                                 0x59,                          // pop ecx
+                                 0xE8, 0x01, 0x00, 0x00, 0x00,  // call 0x100d
+                                 0xF4,                          // hlt @0x100c
+                                 0x01, 0xC8,                    // add eax,ecx @0x100d
+                                 0xC3});                        // ret @0x100f
+    core.cpu().set_rip(0x1000);
+    auto o = run_to_halt(core);
+    CHECK(o.status == StepOutcome::Status::Halted);
+    CHECK_EQ(core.cpu().get(Reg::Rax) & 0xffffffffu, 10u);  // 5 + 5 after the call
+    CHECK_EQ(core.cpu().get(Reg::Rsp), 0x8800u);            // balanced: push/pop + call/ret
+    CHECK_EQ(core.backend_name(), std::string("builtin-x86"));
+}
+
+TEST("32-bit mode: push uses a 4-byte slot (esp -= 4, not 8)") {
+    ExecutionCore core(Arch::X86);
+    core.memory().map(0x1000, 0x1000, perm::RX);
+    core.memory().map(0x8000, 0x1000, perm::RW);
+    core.cpu().set(Reg::Rsp, 0x8800);
+    core.memory().write(0x1000, {0x68, 0x78, 0x56, 0x34, 0x12, 0xF4});  // push 0x12345678 ; hlt
+    core.cpu().set_rip(0x1000);
+    run_to_halt(core);
+    CHECK_EQ(core.cpu().get(Reg::Rsp), 0x87FCu);             // 0x8800 - 4
+    CHECK_EQ(core.memory().read_int(0x87FC, 4).value(), 0x12345678u);
+}
+
 int main() { return dede::test::run_all(); }

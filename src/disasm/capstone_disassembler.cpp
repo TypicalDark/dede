@@ -199,15 +199,16 @@ DecodedInsn convert(const cs_insn& ins) {
 
 class CapstoneDisassembler final : public IDisassembler {
 public:
-    CapstoneDisassembler() {
-        if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle_) != CS_ERR_OK) {
+    explicit CapstoneDisassembler(Arch arch) : arch_(arch) {
+        cs_mode mode = (arch == Arch::X86) ? CS_MODE_32 : CS_MODE_64;
+        if (cs_open(CS_ARCH_X86, mode, &handle_) != CS_ERR_OK) {
             throw DedeError("capstone: cs_open failed");
         }
         cs_option(handle_, CS_OPT_DETAIL, CS_OPT_ON);
     }
     ~CapstoneDisassembler() override { cs_close(&handle_); }
 
-    Arch arch() const override { return Arch::X86_64; }
+    Arch arch() const override { return arch_; }
 
     Result<DecodedInsn> decode_one(const u8* code, std::size_t len, Addr addr) const override {
         cs_insn* insn = nullptr;
@@ -235,15 +236,16 @@ public:
 
 private:
     csh handle_{};
+    Arch arch_;
 };
 
 }  // namespace
 
 std::unique_ptr<IDisassembler> make_disassembler(Arch arch) {
-    if (arch != Arch::X86_64) {
-        throw DedeError("make_disassembler: only x86-64 is implemented");
+    if (arch != Arch::X86_64 && arch != Arch::X86) {
+        throw DedeError("make_disassembler: unsupported architecture");
     }
-    return std::make_unique<CapstoneDisassembler>();
+    return std::make_unique<CapstoneDisassembler>(arch);
 }
 
 // ---- Flyweight decode cache ------------------------------------------------
