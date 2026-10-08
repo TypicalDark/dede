@@ -28,6 +28,7 @@
 #include "dede/analysis/xrefs.hpp"
 #include "dede/disasm/disassembler.hpp"
 #include "dede/loader/loader.hpp"
+#include "dede/os/linux_env.hpp"
 #include "dede/samples/pe_fixture.hpp"
 #include "dede/session/alloc_tracker.hpp"
 #include "dede/session/analysis_session.hpp"
@@ -710,12 +711,42 @@ void run_dynamic_checks() {
         s.bind_macro(id,m); s.run();
         rec(43,'C',"API/function hooking + argument modify", s.read_reg(Reg::Rcx)==0?V::PASS:V::PARTIAL, "address run point + mutating macro rewrote rcx (hook+modify, injected for replay)");
     }
-    // 42: syscall interception + logging (capture layer)
+    // 42: syscall interception + logging (capture layer) + the Linux user-mode sandbox
     {
         auto s = fresh({0x48,0xC7,0xC0,0x01,0,0,0, 0x48,0xC7,0xC7,0x02,0,0,0, 0x0F,0x05, 0xF4}); // mov rax,1;mov rdi,2;syscall;hlt
         s.capture_enable(true); s.run();
-        bool ok=false; for (const auto& e : s.capture_log()) if (e.name=="write" && e.args[0]==2) ok=true;
-        rec(42,'C',"Syscall interception + logging", ok?V::PASS:V::FAIL, "capture tap dissected write(fd=2,...); MITM via Syscall run point (see NETWORK_CAPTURE.md)");
+        bool tap=false; for (const auto& e : s.capture_log()) if (e.name=="write" && e.args[0]==2) tap=true;
+
+        // Behavioral sandbox: a program that mmaps, writes "hi" to stdout, and exits
+        // runs to completion under the Linux OS-environment shim, deterministically.
+        AnalysisSession b(Arch::X86_64);
+        b.map(0x1000, 0x1000, perm::RWX);
+        b.map(0x200000, 0x10000, perm::RWX);
+        auto mv = [](std::vector<u8>& o, u8 rm, u32 im) {
+            o.insert(o.end(), {0x48,0xC7,rm,(u8)im,(u8)(im>>8),(u8)(im>>16),(u8)(im>>24)}); };
+        std::vector<u8> prog;
+        mv(prog,0xC0,9); mv(prog,0xC7,0); mv(prog,0xC6,0x1000); prog.insert(prog.end(),{0x0F,0x05}); // mmap
+        mv(prog,0xC0,1); mv(prog,0xC7,1); mv(prog,0xC6,0x1200); mv(prog,0xC2,2); prog.insert(prog.end(),{0x0F,0x05}); // write(1,"hi",2)
+        mv(prog,0xC0,60); mv(prog,0xC7,0); prog.insert(prog.end(),{0x0F,0x05}); prog.push_back(0xF4); // exit(0)
+        b.load(0x1000, prog, perm::RWX);
+        b.load(0x1200, {'h','i'}, perm::RWX);
+        b.set_entry(0x1000);
+        os::LinuxEnvironment env(0x200000, 0x10000);
+        RunPoint rp; rp.type = RunPointType::Syscall; rp.address = 0; rp.pause = false;
+        u64 id = b.add_run_point(std::move(rp));
+        auto m = std::make_shared<Macro>(); m->mutating = true;
+        m->callback = [&env](IDebugController& c) { env.on_syscall(c); };
+        b.bind_macro(id, m);
+        b.run();
+        auto out = env.output(1);
+        bool sandbox = env.exited() && env.mmap_regions().size() == 1 &&
+                       std::string(out.begin(), out.end()) == "hi" && env.log().size() == 3;
+
+        rec(42,'C',"Syscall interception + logging", (tap && sandbox) ? V::PASS : V::FAIL,
+            "capture tap dissects syscalls (write(fd=2,...)) AND a pluggable Linux user-mode "
+            "environment shims the core syscall set (mmap/mprotect/brk, read/write/writev, openat, "
+            "arch_prctl, exit) so a program runs to completion deterministically — stdout captured "
+            "(MITM-able), mmap regions tracked, exit code recorded, every call on a replayable log");
     }
     // 1,3,77,78,88: real binary loading (ELF) — use a system binary if present.
     {

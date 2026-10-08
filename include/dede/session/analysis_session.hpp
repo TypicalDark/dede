@@ -81,6 +81,8 @@ public:
     void write_reg(Reg r, u64 v, const std::string& note = {}) override;
     Result<void> write_bytes(Addr a, const std::vector<u8>& data,
                              const std::string& note = {}) override;
+    void set_fs_base(u64 v) override { core_.cpu().set_fs_base(v); }
+    void set_gs_base(u64 v) override { core_.cpu().set_gs_base(v); }
 
     // --- IDebugController: control ------------------------------------------
     StepOutcome step() override;

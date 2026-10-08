@@ -32,6 +32,11 @@ public:
     virtual Result<void> write_bytes(Addr a, const std::vector<u8>& data,
                                      const std::string& note = {}) = 0;
 
+    // Thread segment bases (TLS / TEB), e.g. for arch_prctl(ARCH_SET_FS). Captured
+    // by the per-tick Memento snapshot, so it is restored correctly by time-travel.
+    virtual void set_fs_base(u64) {}
+    virtual void set_gs_base(u64) {}
+
     // --- control -------------------------------------------------------------
     virtual StepOutcome step() = 0;
     virtual Result<void> step_back(Tick n) = 0;
