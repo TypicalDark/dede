@@ -256,8 +256,13 @@ tested in `test_symbols.cpp`; shell `demangle` / `proto`.
   to hand-computed float/vector results and a float sample round-trips through memory
   (`test_sse.cpp`); **#89 deepened** (stays PARTIAL — still single-arch). x87 and AVX (256-bit) are
   the documented extensions.
-- **T8.2 (stretch) IA-32 mode** — deferred (gated behind explicit demand; nearest the
-  out-of-scope line, per the original plan).
+- **T8.2 IA-32 (32-bit) mode** ✅ — `Arch::X86`: the Capstone adapter decodes with CS_MODE_32
+  and the interpreter is mode-aware — 4-byte push/pop/call/ret stack slots, (r/e)sp and every
+  effective address masked to the 32-bit space (4 GiB wrap); ALU widths are already decoder-driven
+  so the arithmetic paths are shared. _Done:_ a 32-bit mov/push/pop/call/ret program runs with a
+  balanced 4-byte stack and `builtin-x86` backend (`test_core.cpp`); **#89 runs it** (stays
+  PARTIAL — x86 family only, no ARM). PE32/IAT loading and 32-bit SEH chains are the remaining
+  extensions.
 
 ### Batch 9 — OS user-mode environment / emulation sandbox *(large · the behavioral-analysis milestone)* — ◒ core shipped
 Execute **Windows and Linux** user-mode binaries (notably malware) by modeling the OS API/
@@ -273,7 +278,9 @@ from the ring-0/DRM legacy theme, which stays out).
 (`test_core.cpp`); **T9.3 + T9.L1/L2** the `IOsEnvironment` Strategy + Linux syscall sandbox
 (`os/linux_env`, `test_os.cpp`) — a static ELF mmaps/writes/reads/exits to completion with a
 replayable, MITM-able trace; **T9.W2/W3** a Windows env (`os/windows_env`) — forged PEB/TEB
-(BeingDebugged=0) + Win32 API-stub shims (VirtualAlloc/GetProcAddress/IsDebuggerPresent/…)
+(BeingDebugged=0) + Win32 API-stub shims (VirtualAlloc/GetProcAddress/IsDebuggerPresent/…) and a
+**forged GUI/windowing subsystem** (user32/gdi32: RegisterClassEx/CreateWindowEx/ShowWindow/
+GetMessage/DispatchMessage/DefWindowProc/MessageBox/… + a deterministic message loop) all
 reached by address hooks; **T9.5/T9.6** the deterministic multi-context scheduler
 (`core/scheduler`, `test_sched.cpp`) — threads over one shared space, recorded schedule,
 bit-identical replay, **#45 N/A→PASS**; **T9.7** multi-process (`core/process`) — `fork` as a
@@ -361,16 +368,24 @@ deterministic *serialized* scheduling (dede explores and reproduces specific int
 does not run contexts in true parallel on host cores, which is what keeps replay exact). **Out
 of scope within Batch 9:** true parallel/preemptive execution on multiple host cores, faithful
 reproduction of a *specific real-hardware* race timing (dede picks and records a deterministic
-schedule instead), ring-0/kernel-driver execution, a GUI subsystem, and real external side
-effects (forged/MITM'd, never actually touching the host FS/registry/network).
+schedule instead), ring-0/kernel-driver execution, and real external side effects (forged/MITM'd,
+never actually touching the host FS/registry/network). _(The **GUI/windowing subsystem is now
+forged**: `WindowsEnvironment` shims user32/gdi32 — RegisterClassEx/CreateWindowEx/ShowWindow/
+GetMessage/DispatchMessage/DefWindowProc/MessageBox/Load{Icon,Cursor}/… — with a deterministic
+message loop, so a window-creating, message-pumping program runs to completion and its GUI calls
+are logged/MITM-able; only **real on-screen rendering** of the target's windows stays out, since
+that is a host side effect.)_
 
 ### Explicitly out of scope (documented, not planned)
-Multi-architecture beyond x86-64 · live/remote attach to real processes · **true parallel /
-preemptive execution on multiple host cores** (dede models multi-thread + multi-process via a
-*deterministic serialized scheduler* in Batch 9 — exact reproduction of a specific real-hardware
-race timing is what stays out) · **ring-0 / kernel-driver execution** (the real blocker in the
-legacy PE/DRM theme) · a GUI/windowing subsystem · real host side effects (dede forges/MITMs
-them) · collaboration server · source-only constructs (#14 macros, #27 lambdas, #28
+Multi-architecture beyond the x86 family (x86-64 **and 32-bit IA-32** are both in; ARM/other
+families stay out) · live/remote attach to real processes · **true parallel / preemptive
+execution on multiple host cores** (dede models multi-thread + multi-process via a *deterministic
+serialized scheduler* in Batch 9 — exact reproduction of a specific real-hardware race timing is
+what stays out) · **ring-0 / kernel-driver execution** (the real blocker in the legacy PE/DRM
+theme) · **real on-screen rendering** of a target's windows (the GUI/windowing *API surface* is
+now forged — shimmed user32/gdi32 + a deterministic message loop — so GUI programs run; only
+actual pixels on a real display stay out, as a host side effect) · real host side effects (dede
+forges/MITMs them) · collaboration server · source-only constructs (#14 macros, #27 lambdas, #28
 macro-params) · the vendor-specific commercial-DRM-wrapper specifics of the 45-row legacy theme.
 (Note: generic PE depth is covered by Batch 2; generic **user-mode** Windows/Linux execution —
 *including deterministic multithreading and process creation* — is now **Batch 9**; only the

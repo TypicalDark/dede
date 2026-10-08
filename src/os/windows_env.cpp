@@ -52,8 +52,53 @@ i64 WindowsEnvironment::handle(IDebugController& c, const std::string& api,
         next_ += 0x10;
         return static_cast<i64>(r);
     }
+
+    // --- forged GUI / windowing (user32 / gdi32) -----------------------------
+    // No real rendering; each call returns a plausible forged result and is
+    // logged, so a window-creating, message-pumping program runs to completion.
+    if (api == "RegisterClassExA" || api == "RegisterClassExW" ||
+        api == "RegisterClassA" || api == "RegisterClassW")
+        return static_cast<i64>(++next_handle_ & 0xffff);  // a nonzero ATOM
+    if (api == "CreateWindowExA" || api == "CreateWindowExW" ||
+        api == "CreateWindowA" || api == "CreateWindowW") {
+        u64 hwnd = ++next_handle_;
+        std::string title = read_cstr(c, static_cast<Addr>(a[2]));  // lpWindowName (Win64 arg 3 = R8)
+        windows_.push_back({hwnd, title});
+        return static_cast<i64>(hwnd);
+    }
+    if (api == "ShowWindow" || api == "UpdateWindow" || api == "InvalidateRect" ||
+        api == "TranslateMessage" || api == "DispatchMessageA" || api == "DispatchMessageW")
+        return 1;  // TRUE / handled
+    if (api == "DefWindowProcA" || api == "DefWindowProcW" || api == "PostQuitMessage")
+        return 0;
+    if (api == "GetMessageA" || api == "GetMessageW") {
+        if (!msg_queue_.empty()) { msg_queue_.erase(msg_queue_.begin()); return 1; }  // a pending message
+        return 0;  // WM_QUIT -> the message loop terminates
+    }
+    if (api == "PeekMessageA" || api == "PeekMessageW")
+        return msg_queue_.empty() ? 0 : 1;
+    if (api == "MessageBoxA" || api == "MessageBoxW")
+        return 1;  // IDOK — the forged "user pressed OK"
+    if (api == "LoadIconA" || api == "LoadIconW" || api == "LoadCursorA" || api == "LoadCursorW" ||
+        api == "GetStockObject" || api == "LoadImageA" || api == "BeginPaint" || api == "GetDC" ||
+        api == "CreateSolidBrush")
+        return static_cast<i64>(++next_handle_);  // a nonzero GDI/USER handle
+    if (api == "EndPaint" || api == "ReleaseDC" || api == "DestroyWindow")
+        return 1;
+
     (void)c;
     return 0;  // unknown API: logged, safe default
+}
+
+std::string WindowsEnvironment::read_cstr(IDebugController& c, Addr p, std::size_t cap) const {
+    std::string s;
+    if (p == 0) return s;
+    for (std::size_t i = 0; i < cap; ++i) {
+        auto b = c.read_mem(p + i, 1);
+        if (!b || b.value() == 0) break;
+        s.push_back(static_cast<char>(b.value()));
+    }
+    return s;
 }
 
 void WindowsEnvironment::on_api(IDebugController& c) {

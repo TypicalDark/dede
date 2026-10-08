@@ -44,14 +44,27 @@ public:
     const std::vector<Region>& regions() const { return regions_; }
     const std::map<std::string, Addr>& api_map() const { return by_name_; }
 
+    // --- forged GUI/windowing subsystem --------------------------------------
+    // A window the guest created via CreateWindowEx (no real rendering — a forged
+    // HWND so GUI programs run to completion under the sandbox, calls logged).
+    struct Window { u64 hwnd; std::string title; };
+    const std::vector<Window>& windows() const { return windows_; }
+    // Feed a message so a GetMessage loop pops one (and returns nonzero) before
+    // the queue empties and it returns 0 (WM_QUIT) to terminate deterministically.
+    void post_message(u32 msg) { msg_queue_.push_back(msg); }
+
 private:
     i64 handle(IDebugController& c, const std::string& api, const std::array<u64, 4>& a);
+    std::string read_cstr(IDebugController& c, Addr p, std::size_t cap = 256) const;
 
     Addr arena_, end_, next_, teb_, peb_;
     std::map<Addr, std::string> by_addr_;
     std::map<std::string, Addr> by_name_;
     std::vector<Region> regions_;
     std::vector<SyscallEvent> log_;
+    std::vector<Window> windows_;
+    std::vector<u32> msg_queue_;
+    u64 next_handle_ = 0x00010000;  // forged HWND/HMENU/HICON/... handles
 };
 
 }  // namespace dede::os

@@ -161,4 +161,57 @@ TEST("windows env: forged PEB reads not-debugged + shimmed VirtualAlloc") {
     CHECK_EQ(env.log()[0].name, std::string("VirtualAlloc"));
 }
 
+TEST("windows env: a GUI window + message loop runs to completion (forged)") {
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.map(0x90000, 0x2000, perm::RW);
+    s.map(0xA0000, 0x10000, perm::RWX);
+    s.core().cpu().set(Reg::Rsp, 0x1f00);
+
+    // build main at 0x1000 with calls to API stubs at 0x1280/90/A0/B0
+    std::vector<u8> code;
+    auto at = [&]() { return 0x1000u + code.size(); };
+    auto emit = [&](std::initializer_list<u8> b) { for (u8 x : b) code.push_back(x); };
+    auto call = [&](Addr target) {
+        int rel = static_cast<int>(target - (at() + 5));
+        emit({0xE8, (u8)rel, (u8)(rel >> 8), (u8)(rel >> 16), (u8)(rel >> 24)});
+    };
+    call(0x1280);                                            // RegisterClassExA()
+    emit({0x49, 0xC7, 0xC0, 0x00, 0x13, 0x00, 0x00});        // mov r8, 0x1300 (lpWindowName)
+    call(0x1290);                                            // CreateWindowExA(...)
+    emit({0x49, 0x89, 0xC6});                                // mov r14, rax (save HWND)
+    call(0x12A0);                                            // ShowWindow(hwnd, ...)
+    call(0x12B0);                                            // GetMessageA(...) -> 0 (WM_QUIT)
+    emit({0x49, 0x89, 0xC7});                                // mov r15, rax (loop-exit value)
+    emit({0xF4});                                            // hlt
+    s.load(0x1000, code, perm::RWX);
+    s.load(0x1280, {0xC3}, perm::RWX);  // each API stub is a bare ret
+    s.load(0x1290, {0xC3}, perm::RWX);
+    s.load(0x12A0, {0xC3}, perm::RWX);
+    s.load(0x12B0, {0xC3}, perm::RWX);
+    s.load(0x1300, {'M', 'y', 'W', 'i', 'n', 'd', 'o', 'w', 0}, perm::RWX);
+    s.set_entry(0x1000);
+
+    os::WindowsEnvironment env(0xA0000, 0x10000, 0x90000, 0x91000);
+    env.install(s);
+    struct { const char* n; Addr a; } apis[] = {
+        {"RegisterClassExA", 0x1280}, {"CreateWindowExA", 0x1290},
+        {"ShowWindow", 0x12A0}, {"GetMessageA", 0x12B0}};
+    for (auto& ap : apis) {
+        env.register_api(ap.n, ap.a);
+        RunPoint rp; rp.type = RunPointType::Address; rp.address = ap.a; rp.pause = false;
+        u64 id = s.add_run_point(std::move(rp));
+        auto m = std::make_shared<Macro>(); m->mutating = true;
+        m->callback = [&env](IDebugController& c) { env.on_api(c); };
+        s.bind_macro(id, m);
+    }
+    s.run();
+
+    CHECK_EQ(env.windows().size(), 1u);                      // one window created
+    CHECK_EQ(env.windows()[0].title, std::string("MyWindow"));
+    CHECK(s.core().cpu().get(Reg::R14) >= 0x10000u);         // a forged HWND
+    CHECK_EQ(s.core().cpu().get(Reg::R15), 0u);              // GetMessage returned 0 -> loop exits
+    CHECK_EQ(env.log().size(), 4u);                          // all four GUI calls logged
+}
+
 int main() { return dede::test::run_all(); }
