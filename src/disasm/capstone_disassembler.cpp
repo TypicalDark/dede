@@ -162,7 +162,12 @@ Operand convert_op(const cs_x86_op& op) {
                 }
             }
             if (op.mem.segment != X86_REG_INVALID) {
-                out.supported = false;  // segment overrides not modelled
+                if (auto sg = map_seg(op.mem.segment); sg && (*sg == SegReg::FS || *sg == SegReg::GS)) {
+                    out.mem.has_seg = true;  // fs:/gs: resolve against the thread base
+                    out.mem.seg = *sg;
+                } else {
+                    out.supported = false;  // other segment overrides not modelled
+                }
             }
             break;
         }

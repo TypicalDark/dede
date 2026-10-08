@@ -146,6 +146,10 @@ private:
                                       : static_cast<i64>(e.cpu.get(m.base));
         }
         if (m.has_index) a += static_cast<i64>(e.cpu.get(m.index)) * static_cast<i64>(m.scale);
+        if (m.has_seg) {  // fs:/gs:-relative — add the thread segment base (TEB/TLS)
+            a += (m.seg == SegReg::FS) ? static_cast<i64>(e.cpu.fs_base())
+                                       : static_cast<i64>(e.cpu.gs_base());
+        }
         return static_cast<Addr>(a);
     }
 

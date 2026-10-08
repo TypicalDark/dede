@@ -17,7 +17,7 @@ enum class OpKind { None, Reg, Imm, Mem, SegReg, Xmm };
 // x86 segment registers (read by anti-VM checks via `mov ax, cs` etc.).
 enum class SegReg : u8 { CS, SS, DS, ES, FS, GS };
 
-// A memory operand of the form [base + index*scale + disp].
+// A memory operand of the form [seg:base + index*scale + disp].
 struct MemOperand {
     bool has_base = false;
     Reg base = Reg::Rax;
@@ -26,6 +26,8 @@ struct MemOperand {
     u32 scale = 1;
     i64 disp = 0;
     unsigned size = 0;  // access size in bytes
+    bool has_seg = false;   // an fs:/gs: segment override is present
+    SegReg seg = SegReg::DS;
 };
 
 struct Operand {

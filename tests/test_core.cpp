@@ -123,4 +123,23 @@ TEST("idiv quotient overflow (INT64_MIN / -1) raises a Fault, no UB") {
     CHECK(o.status == StepOutcome::Status::Fault);
 }
 
+TEST("fs/gs-relative memory resolves against the thread segment base") {
+    // mov rax, fs:[0x28]  (64 48 8B 04 25 28 00 00 00)  -- the glibc stack canary slot
+    // mov rbx, gs:[0x10]  (65 48 8B 1C 25 10 00 00 00)
+    ExecutionCore core;
+    core.memory().map(kBase, 0x1000, perm::RX);
+    core.memory().write(kBase, {0x64, 0x48, 0x8B, 0x04, 0x25, 0x28, 0x00, 0x00, 0x00,
+                                0x65, 0x48, 0x8B, 0x1C, 0x25, 0x10, 0x00, 0x00, 0x00, 0xF4});
+    core.cpu().set_rip(kBase);
+    // place the TLS/TEB regions and seed the canary + a gs value
+    core.memory().map(0x7000, 0x1000, perm::RW);
+    core.cpu().set_fs_base(0x7000);
+    core.cpu().set_gs_base(0x7800);
+    core.memory().write(0x7028, {0xEF, 0xBE, 0xAD, 0xDE, 0x00, 0x00, 0x00, 0x00});  // fs:[0x28]
+    core.memory().write(0x7810, {0x0D, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});  // gs:[0x10]
+    run_to_halt(core);
+    CHECK_EQ(core.cpu().get(Reg::Rax), 0xdeadbeefu);  // read via fs base + 0x28
+    CHECK_EQ(core.cpu().get(Reg::Rbx), 0xf00du);      // read via gs base + 0x10
+}
+
 int main() { return dede::test::run_all(); }
