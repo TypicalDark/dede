@@ -62,6 +62,7 @@ target_link_libraries(dede_disasm PUBLIC ${CAPSTONE_LIBRARIES})
 dede_library(dede_core
   SRCS src/core/event.cpp src/core/memory_proxy.cpp
        src/core/execution_core.cpp src/core/builtin_backend.cpp src/core/scheduler.cpp
+       src/core/process.cpp
   DEPS dede_disasm dede_common)
 
 dede_library(dede_replay SRCS src/replay/timeline.cpp DEPS dede_core)
@@ -97,7 +98,7 @@ dede_library(dede_symbols SRCS src/symbols/demangle.cpp src/symbols/protodb.cpp 
 
 dede_library(dede_interchange SRCS src/interchange/interchange.cpp DEPS dede_common)
 
-dede_library(dede_os SRCS src/os/linux_env.cpp DEPS dede_macro)
+dede_library(dede_os SRCS src/os/linux_env.cpp src/os/windows_env.cpp DEPS dede_macro)
 if(DEDE_WITH_LIBVMI)
   target_compile_definitions(dede_introspection PUBLIC DEDE_WITH_LIBVMI)
 endif()

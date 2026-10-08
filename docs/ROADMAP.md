@@ -259,7 +259,7 @@ tested in `test_symbols.cpp`; shell `demangle` / `proto`.
 - **T8.2 (stretch) IA-32 mode** — deferred (gated behind explicit demand; nearest the
   out-of-scope line, per the original plan).
 
-### Batch 9 — OS user-mode environment / emulation sandbox *(large · the behavioral-analysis milestone)*
+### Batch 9 — OS user-mode environment / emulation sandbox *(large · the behavioral-analysis milestone)* — ◒ core shipped
 Execute **Windows and Linux** user-mode binaries (notably malware) by modeling the OS API/
 syscall surface — the Qiling/Speakeasy/Unicorn-sandbox approach, built on dede's existing
 **capture/MITM** (API hooking + syscall interception), **transparency** (structure forging),
@@ -268,6 +268,22 @@ sandbox: it stays **deterministic + time-travel + record/replay**, so you can ru
 watch it unpack/stage, step *backward* to see how, and replay bit-for-bit while feeding fake
 inputs via MITM. This makes generic **user-mode** Windows/Linux analysis in-charter (distinct
 from the ring-0/DRM legacy theme, which stays out).
+
+**Shipped so far** (code + tests, all committed): **T9.1** fs/gs segment bases
+(`test_core.cpp`); **T9.3 + T9.L1/L2** the `IOsEnvironment` Strategy + Linux syscall sandbox
+(`os/linux_env`, `test_os.cpp`) — a static ELF mmaps/writes/reads/exits to completion with a
+replayable, MITM-able trace; **T9.W2/W3** a Windows env (`os/windows_env`) — forged PEB/TEB
+(BeingDebugged=0) + Win32 API-stub shims (VirtualAlloc/GetProcAddress/IsDebuggerPresent/…)
+reached by address hooks; **T9.5/T9.6** the deterministic multi-context scheduler
+(`core/scheduler`, `test_sched.cpp`) — threads over one shared space, recorded schedule,
+bit-identical replay, **#45 N/A→PASS**; **T9.7** multi-process (`core/process`) — `fork` as a
+Memento COW-clone into an independent space + mediated pipe IPC. Harness: **#42** drives a
+program under the Linux sandbox, **#43** exercises the Windows API shim + forged PEB, **#45**
+runs the scheduler with replay.
+**Still open (documented, not forced):** T9.2 generic IAT/PLT-GOT auto-binding (today APIs bind
+by explicit stub address), T9.W1 full module map, T9.W4 SEH dispatch, T9.L3 dynamic-ELF ld.so,
+and a cross-process interleaving scheduler (processes run independently today). True parallel
+host execution, ring-0, GUI subsystem, and real host side effects stay out of scope.
 
 **Shared foundation**
 - **T9.1 Segment bases (`fs`/`gs`) in the interpreter** — needed by both OSes (Win PEB/TEB,

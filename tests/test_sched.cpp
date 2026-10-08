@@ -7,6 +7,7 @@
 
 #include "check.hpp"
 #include "dede/core/execution_core.hpp"
+#include "dede/core/process.hpp"
 #include "dede/core/scheduler.hpp"
 
 using namespace dede;
@@ -82,6 +83,36 @@ TEST("a third thread (spawned context) joins the shared computation") {
     sched.run();
     CHECK(sched.all_halted());
     CHECK_EQ(core.memory().read_int(kCounter, 8).value(), 12u);  // 3 threads x 4
+}
+
+TEST("fork COW-clones an independent address space; a pipe carries IPC") {
+    ProcessTable pt;
+    int parent = pt.spawn();
+    pt.core(parent).memory().map(0x4000, 0x1000, perm::RW);
+    pt.core(parent).memory().write(0x4000, {0x11, 0x22, 0x33, 0x44});  // parent data
+
+    int child = pt.fork(parent);  // COW-clone of the parent's whole machine
+    CHECK(child > 0);
+    CHECK_EQ(pt.count(), 2u);
+    // the child starts with a copy of the parent's data
+    CHECK_EQ(pt.core(child).memory().read_int(0x4000, 4).value(), 0x44332211u);
+
+    // the child mutates its copy; the parent's space is unaffected (independent)
+    pt.core(child).memory().write(0x4000, {0xEE, 0xEE, 0xEE, 0xEE});
+    CHECK_EQ(pt.core(child).memory().read_int(0x4000, 4).value(), 0xEEEEEEEEu);
+    CHECK_EQ(pt.core(parent).memory().read_int(0x4000, 4).value(), 0x44332211u);  // unchanged
+
+    // mediated pipe IPC: parent writes, child reads the same bytes
+    int pipe = pt.make_pipe();
+    pt.pipe_write(pipe, {'p', 'i', 'n', 'g'});
+    CHECK_EQ(pt.pipe_pending(pipe), 4u);
+    auto got = pt.pipe_read(pipe, 4);
+    CHECK_EQ(std::string(got.begin(), got.end()), std::string("ping"));
+    CHECK_EQ(pt.pipe_pending(pipe), 0u);
+
+    // both processes are listed with their own address spaces
+    CHECK_EQ(pt.pids().size(), 2u);
+    CHECK(pt.alive(parent) && pt.alive(child));
 }
 
 int main() { return dede::test::run_all(); }

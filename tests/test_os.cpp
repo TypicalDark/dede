@@ -10,6 +10,7 @@
 #include "check.hpp"
 #include "dede/macro/command.hpp"
 #include "dede/os/linux_env.hpp"
+#include "dede/os/windows_env.hpp"
 #include "dede/session/analysis_session.hpp"
 
 using namespace dede;
@@ -116,6 +117,48 @@ TEST("linux env: time-travel restores pre-syscall state") {
     CHECK(s.step_back(end).ok());          // back to tick 0 (entry)
     CHECK_EQ(s.now(), 0u);
     CHECK_EQ(s.core().cpu().rip(), 0x1000u);  // rip restored to the entry
+}
+
+TEST("windows env: forged PEB reads not-debugged + shimmed VirtualAlloc") {
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.map(0x90000, 0x2000, perm::RW);    // TEB + PEB
+    s.map(0xA0000, 0x10000, perm::RWX);  // VirtualAlloc arena
+    s.core().cpu().set(Reg::Rsp, 0x1f00);
+
+    // code laid out so the VirtualAlloc stub sits at 0x1080:
+    std::vector<u8> code(0x81, 0x90);  // pad with NOPs up to 0x80
+    std::size_t p = 0;
+    auto put = [&](std::initializer_list<u8> b) { for (u8 x : b) code[p++] = x; };
+    put({0x65, 0x48, 0x8B, 0x04, 0x25, 0x60, 0x00, 0x00, 0x00});  // mov rax, gs:[0x60]  (PEB)
+    put({0x0F, 0xB6, 0x58, 0x02});                                // movzx ebx, byte [rax+2] (BeingDebugged)
+    put({0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x00});              // mov rcx, 0
+    put({0x48, 0xC7, 0xC2, 0x00, 0x10, 0x00, 0x00});              // mov rdx, 0x1000
+    put({0x49, 0xC7, 0xC0, 0x00, 0x30, 0x00, 0x00});              // mov r8, 0x3000
+    put({0x49, 0xC7, 0xC1, 0x40, 0x00, 0x00, 0x00});              // mov r9, 0x40
+    put({0xE8, 0x52, 0x00, 0x00, 0x00});                          // call 0x1080 (VirtualAlloc stub)
+    put({0x49, 0x89, 0xC7});                                      // mov r15, rax (save region)
+    put({0xF4});                                                  // hlt
+    code[0x80] = 0xC3;                                            // the VirtualAlloc stub: ret
+    s.load(0x1000, code, perm::RWX);
+    s.set_entry(0x1000);
+
+    os::WindowsEnvironment env(0xA0000, 0x10000, /*teb=*/0x90000, /*peb=*/0x91000);
+    env.install(s);                       // forge PEB/TEB + set gs base
+    env.register_api("VirtualAlloc", 0x1080);
+    RunPoint rp; rp.type = RunPointType::Address; rp.address = 0x1080; rp.pause = false;
+    u64 id = s.add_run_point(std::move(rp));
+    auto m = std::make_shared<Macro>(); m->mutating = true;
+    m->callback = [&env](IDebugController& c) { env.on_api(c); };
+    s.bind_macro(id, m);
+    s.run();
+
+    CHECK_EQ(s.core().cpu().get(Reg::Rbx), 0u);              // PEB.BeingDebugged == 0 (not debugged)
+    CHECK(s.core().cpu().get(Reg::R15) >= 0xA0000u);         // VirtualAlloc returned an arena address
+    CHECK_EQ(env.regions().size(), 1u);
+    CHECK_EQ(env.regions()[0].size, 0x1000u);
+    CHECK_EQ(env.log().size(), 1u);
+    CHECK_EQ(env.log()[0].name, std::string("VirtualAlloc"));
 }
 
 int main() { return dede::test::run_all(); }

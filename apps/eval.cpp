@@ -30,6 +30,7 @@
 #include "dede/disasm/disassembler.hpp"
 #include "dede/loader/loader.hpp"
 #include "dede/os/linux_env.hpp"
+#include "dede/os/windows_env.hpp"
 #include "dede/samples/pe_fixture.hpp"
 #include "dede/session/alloc_tracker.hpp"
 #include "dede/session/analysis_session.hpp"
@@ -705,12 +706,54 @@ void run_dynamic_checks() {
         auto s = fresh(kLoop);
         rec(83,'E',"Memory-map visualization", !s.memory_map().empty()?V::PASS:V::FAIL, "memory_map(): "+std::to_string(s.memory_map().size())+" regions (shell + GUI panel)");
     }
-    // 43: API/address hooking via macro + modify (injected)
+    // 43: API/address hooking via macro + modify (injected) + the Windows API-shim env
     {
         auto s = fresh(kLoop); u64 id=s.add_breakpoint(0x1007);
         auto m=std::make_shared<Macro>(); m->mutating=true; m->callback=[](IDebugController&c){c.write_reg(Reg::Rcx,0,"hook");};
         s.bind_macro(id,m); s.run();
-        rec(43,'C',"API/function hooking + argument modify", s.read_reg(Reg::Rcx)==0?V::PASS:V::PARTIAL, "address run point + mutating macro rewrote rcx (hook+modify, injected for replay)");
+        bool hook = s.read_reg(Reg::Rcx) == 0;
+
+        // Windows user-mode env: forged PEB (BeingDebugged=0) + a VirtualAlloc API
+        // shim reached by an address hook on its stub (the Win32 side of the sandbox).
+        AnalysisSession w(Arch::X86_64);
+        w.map(0x1000, 0x1000, perm::RWX);
+        w.map(0x90000, 0x2000, perm::RW);
+        w.map(0xA0000, 0x10000, perm::RWX);
+        w.core().cpu().set(Reg::Rsp, 0x1f00);
+        std::vector<u8> code(0x81, 0x90);
+        std::size_t p = 0;
+        auto put = [&](std::initializer_list<u8> b) { for (u8 x : b) code[p++] = x; };
+        put({0x65,0x48,0x8B,0x04,0x25,0x60,0,0,0});           // mov rax, gs:[0x60]
+        put({0x0F,0xB6,0x58,0x02});                           // movzx ebx, byte [rax+2]
+        put({0x48,0xC7,0xC1,0,0,0,0});                        // mov rcx,0
+        put({0x48,0xC7,0xC2,0,0x10,0,0});                     // mov rdx,0x1000
+        put({0x49,0xC7,0xC0,0,0x30,0,0});                     // mov r8,0x3000
+        put({0x49,0xC7,0xC1,0x40,0,0,0});                     // mov r9,0x40
+        put({0xE8,0x52,0,0,0});                               // call 0x1080
+        put({0x49,0x89,0xC7});                                // mov r15,rax
+        put({0xF4});
+        code[0x80] = 0xC3;                                    // VirtualAlloc stub: ret
+        w.load(0x1000, code, perm::RWX);
+        w.set_entry(0x1000);
+        os::WindowsEnvironment wenv(0xA0000, 0x10000, 0x90000, 0x91000);
+        wenv.install(w);
+        wenv.register_api("VirtualAlloc", 0x1080);
+        RunPoint wrp; wrp.type = RunPointType::Address; wrp.address = 0x1080; wrp.pause = false;
+        u64 wid = w.add_run_point(std::move(wrp));
+        auto wm = std::make_shared<Macro>(); wm->mutating = true;
+        wm->callback = [&wenv](IDebugController& c) { wenv.on_api(c); };
+        w.bind_macro(wid, wm);
+        w.run();
+        bool win = w.read_reg(Reg::Rbx) == 0 &&            // forged PEB.BeingDebugged == 0
+                   w.read_reg(Reg::R15) >= 0xA0000 &&      // VirtualAlloc returned an arena addr
+                   wenv.regions().size() == 1 && wenv.log().size() == 1;
+
+        rec(43,'C',"API/function hooking + argument modify", (hook && win) ? V::PASS : V::PARTIAL,
+            "address run point + mutating macro rewrites arguments (injected for replay); the "
+            "Windows user-mode environment reaches the same way — a forged PEB/TEB makes an "
+            "anti-debug BeingDebugged check read 'not debugged', and Win32 API stubs (VirtualAlloc/"
+            "GetProcAddress/IsDebuggerPresent/...) dispatch to shim handlers that return plausible "
+            "results and log the call");
     }
     // 42: syscall interception + logging (capture layer) + the Linux user-mode sandbox
     {
