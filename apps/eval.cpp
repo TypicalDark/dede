@@ -23,6 +23,7 @@
 
 #include "dede/analysis/callstack.hpp"
 #include "dede/analysis/recover.hpp"
+#include "dede/core/scheduler.hpp"
 #include "dede/interchange/interchange.hpp"
 #include "dede/analysis/scan.hpp"
 #include "dede/analysis/xrefs.hpp"
@@ -748,6 +749,29 @@ void run_dynamic_checks() {
             "arch_prctl, exit) so a program runs to completion deterministically — stdout captured "
             "(MITM-able), mmap regions tracked, exit code recorded, every call on a replayable log");
     }
+    // 45: multi-threaded debugging — deterministic multi-context scheduler.
+    {
+        ExecutionCore core;
+        core.memory().map(0x1000, 0x1000, perm::RX);
+        // loop: inc qword [0x5000]; dec rcx; jnz loop; hlt
+        core.memory().write(0x1000, {0x48,0xFF,0x04,0x25,0x00,0x50,0x00,0x00, 0x48,0xFF,0xC9, 0x75,0xF3, 0xF4});
+        core.memory().map(0x5000, 0x1000, perm::RW);
+        auto before = core.snapshot();
+        auto mk = [](u64 n, u64 sp) { CpuState c; c.set_rip(0x1000); c.set(Reg::Rcx, n); c.set(Reg::Rsp, sp); return c; };
+        DeterministicScheduler sched(core, 5);
+        sched.add_context(mk(10, 0x8000));
+        sched.add_context(mk(7, 0x8100));
+        sched.run();
+        bool done = sched.all_halted() && core.memory().read_int(0x5000, 8).value_or(0) == 17 &&
+                    sched.schedule().size() > 2;  // genuinely interleaved
+        bool replayable = sched.replay(before) && core.memory().read_int(0x5000, 8).value_or(0) == 17;
+        rec(45,'C',"Multi-threaded debugging", (done && replayable) ? V::PASS : V::FAIL,
+            "deterministic multi-context scheduler (rr/TTD model): N thread register files share one "
+            "address space, run one-at-a-time under a recorded round-robin schedule, each with its "
+            "own stack — the interleaving is reproduced bit-for-bit on replay (dede's edge: "
+            "concurrency without losing determinism or time-travel; true-parallel host execution is "
+            "deliberately out of scope so replay stays exact)");
+    }
     // 1,3,77,78,88: real binary loading (ELF) — use a system binary if present.
     {
         LoadedImage img; bool got = false;
@@ -843,7 +867,6 @@ int main(int argc, char** argv) {
     rec(27,'B',"Lambda/closure handling", V::NA, "source construct");
     rec(28,'B',"Macro parameter substitution", V::NA, "source construct");
     rec(35,'C',"Stack frame / locals inspection", V::PARTIAL, "stack telescope + annotations; no local-variable recovery");
-    rec(45,'C',"Multi-threaded debugging", V::NA, "single-threaded deterministic core by design");
     rec(54,'D',"License-validation routine ID", V::PARTIAL, "strings + run points assist; not fully automated");
     rec(57,'D',"Code-integrity-check identification", V::PARTIAL, "W^X + reads-of-code detectable; dedicated detector pending");
     rec(58,'D',"Obfuscation pattern detection", V::PARTIAL, "NOP-ratio/opcode anomaly + runtime SMC; more patterns pending");
