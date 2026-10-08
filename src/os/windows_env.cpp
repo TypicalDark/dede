@@ -30,8 +30,10 @@ void WindowsEnvironment::register_api(const std::string& name, Addr stub) {
 i64 WindowsEnvironment::handle(IDebugController& c, const std::string& api,
                                const std::array<u64, 4>& a) {
     if (api == "VirtualAlloc") {  // (lpAddress, dwSize, flAllocationType, flProtect)
-        u64 len = round_up(a[1] ? a[1] : kPage, kPage);
-        if (next_ + len > end_) return 0;  // NULL on failure
+        u64 req = a[1] ? a[1] : kPage;
+        if (req > (end_ - next_)) return 0;                  // overflow-safe capacity check
+        u64 len = round_up(req, kPage);
+        if (len < req || len > (end_ - next_)) return 0;     // round_up overflow / no room -> NULL
         Addr r = next_;
         next_ += len;
         regions_.push_back({r, len});
@@ -45,6 +47,7 @@ i64 WindowsEnvironment::handle(IDebugController& c, const std::string& api,
         return static_cast<i64>(0x180000000ull);           // a plausible module base
     if (api == "GetProcAddress") {
         // return a fresh synthetic stub for the requested proc (next_ bump)
+        if (0x10 > (end_ - next_)) return 0;  // out of arena -> NULL
         Addr r = next_;
         next_ += 0x10;
         return static_cast<i64>(r);

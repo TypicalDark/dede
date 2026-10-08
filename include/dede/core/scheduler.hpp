@@ -55,11 +55,13 @@ public:
 
 private:
     struct Ctx { CpuState initial; CpuState cpu; bool halted = false; };
-    // Run one round-robin pass; returns the segments produced (for replay compare).
-    std::vector<SchedSegment> run_internal();
+    // Run until all contexts halt or `max_segments` switches occur (the cap is a
+    // runaway backstop); returns the segments produced (for replay compare).
+    std::vector<SchedSegment> run_internal(u64 max_segments);
 
     ExecutionCore& core_;
     u64 quantum_;
+    u64 max_segments_ = 1000000;
     std::vector<Ctx> ctxs_;
     std::vector<SchedSegment> schedule_;
 };

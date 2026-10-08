@@ -20,13 +20,11 @@ u64 DeterministicScheduler::total_steps() const {
     return n;
 }
 
-std::vector<SchedSegment> DeterministicScheduler::run_internal() {
+std::vector<SchedSegment> DeterministicScheduler::run_internal(u64 max_segments) {
     std::vector<SchedSegment> seg;
     if (ctxs_.empty()) return seg;
     std::size_t cur = 0;
-    u64 guard = 0;
-    const u64 kCap = 1000000;
-    while (!all_halted() && guard++ < kCap) {
+    while (!all_halted() && seg.size() < max_segments) {
         // find the next runnable context, round-robin from `cur`
         std::size_t start = cur;
         while (ctxs_[cur].halted) {
@@ -48,9 +46,10 @@ std::vector<SchedSegment> DeterministicScheduler::run_internal() {
     return seg;
 }
 
-void DeterministicScheduler::run(u64 /*max_segments*/) {
+void DeterministicScheduler::run(u64 max_segments) {
+    max_segments_ = max_segments;
     for (auto& c : ctxs_) { c.cpu = c.initial; c.halted = false; }
-    schedule_ = run_internal();
+    schedule_ = run_internal(max_segments);
 }
 
 bool DeterministicScheduler::replay(const StateMemento& restore_point) {
@@ -61,7 +60,7 @@ bool DeterministicScheduler::replay(const StateMemento& restore_point) {
 
     core_.restore(restore_point);         // reset the shared address space
     for (auto& c : ctxs_) { c.cpu = c.initial; c.halted = false; }
-    auto seg = run_internal();
+    auto seg = run_internal(max_segments_);
 
     if (seg.size() != recorded.size()) return false;
     for (std::size_t i = 0; i < seg.size(); ++i)

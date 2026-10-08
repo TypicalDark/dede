@@ -27,7 +27,7 @@ public:
     // grows from the low half, mmap bump-allocates from the high half.
     LinuxEnvironment(Addr arena_base, u64 arena_size)
         : base_(arena_base), mid_(arena_base + arena_size / 2),
-          end_(arena_base + arena_size), brk_(arena_base + arena_size / 2),
+          end_(arena_base + arena_size), brk_(arena_base),  // break grows UP from the low half
           mmap_next_(arena_base + arena_size / 2) {}
 
     std::string name() const override { return "linux-x86_64"; }
@@ -47,6 +47,7 @@ private:
     std::string read_cstr(IDebugController& c, Addr p, std::size_t cap = 256) const;
 
     Addr base_, mid_, end_, brk_, mmap_next_;
+    u64 fs_base_ = 0, gs_base_ = 0;   // last arch_prctl(ARCH_SET_FS/GS), for GET_FS/GS readback
     int next_fd_ = 3;
     bool exited_ = false;
     i64 exit_code_ = 0;

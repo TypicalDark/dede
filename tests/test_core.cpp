@@ -142,4 +142,15 @@ TEST("fs/gs-relative memory resolves against the thread segment base") {
     CHECK_EQ(core.cpu().get(Reg::Rbx), 0xf00du);      // read via gs base + 0x10
 }
 
+TEST("lea with an fs: override computes the offset, not offset+fs_base") {
+    // lea rax, fs:[0x30]  (64 48 8D 04 25 30 00 00 00)  -- LEA ignores the segment base
+    ExecutionCore core;
+    core.memory().map(kBase, 0x1000, perm::RX);
+    core.memory().write(kBase, {0x64, 0x48, 0x8D, 0x04, 0x25, 0x30, 0x00, 0x00, 0x00, 0xF4});
+    core.cpu().set_rip(kBase);
+    core.cpu().set_fs_base(0x7ffff7a00000);
+    run_to_halt(core);
+    CHECK_EQ(core.cpu().get(Reg::Rax), 0x30u);  // offset only; fs base must NOT be folded in
+}
+
 int main() { return dede::test::run_all(); }

@@ -139,14 +139,17 @@ private:
         return {StepOutcome::Status::Unsupported, what};
     }
 
-    Result<Addr> effective_addr(Exec& e, const MemOperand& m) {
+    // `apply_seg` adds the fs/gs thread base for actual loads/stores. LEA
+    // computes the pure effective address (offset) and must NOT fold in the
+    // segment base, so the lea handler passes apply_seg=false.
+    Result<Addr> effective_addr(Exec& e, const MemOperand& m, bool apply_seg = true) {
         i64 a = m.disp;
         if (m.has_base) {
             a += (m.base == Reg::Rip) ? static_cast<i64>(e.in.addr + e.in.size)
                                       : static_cast<i64>(e.cpu.get(m.base));
         }
         if (m.has_index) a += static_cast<i64>(e.cpu.get(m.index)) * static_cast<i64>(m.scale);
-        if (m.has_seg) {  // fs:/gs:-relative — add the thread segment base (TEB/TLS)
+        if (apply_seg && m.has_seg) {  // fs:/gs:-relative — add the thread segment base (TEB/TLS)
             a += (m.seg == SegReg::FS) ? static_cast<i64>(e.cpu.fs_base())
                                        : static_cast<i64>(e.cpu.gs_base());
         }
@@ -184,15 +187,26 @@ private:
 
     // --- SSE/SSE2 helpers ----------------------------------------------------
     using Xmm = CpuState::Xmm;
+    // Read an XMM operand, accessing EXACTLY the operand's architectural width
+    // (m32 scalar = 4 bytes, m64 = 8, m128 = 16). Reading a fixed 8/16 would
+    // over-read — spuriously faulting a 4-byte load near a page end and emitting
+    // wrong-sized memory events — and a guarded high read would let a straddling
+    // 128-bit load silently zero-fill instead of faulting.
     Result<Xmm> read_xmm(Exec& e, const Operand& op) {
         if (op.kind == OpKind::Xmm) return e.cpu.get_xmm(op.xmm);
         if (op.kind == OpKind::Mem) {
             auto a = effective_addr(e, op.mem);
             if (!a) return a.error();
-            auto lo = e.mem.read(a.value(), 8);
+            unsigned sz = op.size ? op.size : 16;  // 4 / 8 / 16
+            Xmm x;
+            auto lo = e.mem.read(a.value(), sz < 8 ? sz : 8);
             if (!lo) return lo.error();
-            Xmm x; x.lo = lo.value();
-            if (auto hi = e.mem.read(a.value() + 8, 8)) x.hi = hi.value();  // 16-byte region if mapped
+            x.lo = lo.value();
+            if (sz > 8) {
+                auto hi = e.mem.read(a.value() + 8, sz - 8);
+                if (!hi) return hi.error();  // a straddling 128-bit load must fault, not zero-fill
+                x.hi = hi.value();
+            }
             return x;
         }
         return make_error("read_xmm: bad operand");
@@ -297,7 +311,7 @@ private:
         if (m == "mov" || m == "movabs")
             return rr(e, [&](u64, u64 s) { return s; }, /*write*/ true, /*use_dst*/ false);
         if (m == "lea") {
-            auto a = effective_addr(e, ops.at(1).mem);
+            auto a = effective_addr(e, ops.at(1).mem, /*apply_seg=*/false);  // offset only, no seg base
             if (!a) return fault(e.sink, e.in.addr, e.tick, a.message());
             if (auto r = write_op(e, ops[0], a.value()); !r) return fault(e.sink, e.in.addr, e.tick, r.message());
             return ok();

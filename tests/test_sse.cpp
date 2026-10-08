@@ -92,4 +92,17 @@ TEST("movsd through memory round-trips and a float sample runs") {
     CHECK(bd(s.core().cpu().get_xmm(1).lo) == 6.25);
 }
 
+TEST("movss m32 reads exactly 4 bytes — no over-read fault at a page boundary") {
+    AnalysisSession s(Arch::X86_64);
+    s.map(0x1000, 0x1000, perm::RWX);
+    s.map(0x3000, 0x1000, perm::RW);           // data page; 0x4000+ is left UNMAPPED
+    // movss xmm0, dword ptr [0x3ffc]  (F3 0F 10 04 25 FC 3F 00 00) ; hlt
+    s.load(0x1000, {0xF3, 0x0F, 0x10, 0x04, 0x25, 0xFC, 0x3F, 0x00, 0x00, 0xF4}, perm::RWX);
+    s.set_entry(0x1000);
+    s.load(0x3FFC, {0xDB, 0x0F, 0x49, 0x40}, perm::RW);  // bits of 3.14159f at the last 4 bytes
+    auto o = s.run();
+    CHECK(o.status != StepOutcome::Status::Fault);       // 4-byte operand is fully mapped: no fault
+    CHECK_EQ(s.core().cpu().get_xmm(0).lo & 0xffffffffull, 0x40490FDBull);
+}
+
 int main() { return dede::test::run_all(); }

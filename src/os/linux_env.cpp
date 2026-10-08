@@ -95,8 +95,10 @@ i64 LinuxEnvironment::dispatch(IDebugController& c, long nr, const std::array<u6
         case kOpenat: { fd_path_[next_fd_] = read_cstr(c, a[1]); return next_fd_++; }
         case kClose: return 0;
         case kMmap: {
-            u64 len = round_up(a[1] ? a[1] : kPage, kPage);
-            if (mmap_next_ + len > end_) return -12;  // -ENOMEM
+            u64 req = a[1] ? a[1] : kPage;
+            if (req > (end_ - mmap_next_)) return -12;                 // overflow-safe capacity check
+            u64 len = round_up(req, kPage);
+            if (len < req || len > (end_ - mmap_next_)) return -12;    // round_up overflow / no room
             Addr r = mmap_next_;
             mmap_next_ += len;
             regions_.push_back({r, len, c.now()});
@@ -112,11 +114,12 @@ i64 LinuxEnvironment::dispatch(IDebugController& c, long nr, const std::array<u6
         }
         case kArchprctl: {
             constexpr u64 SET_FS = 0x1002, SET_GS = 0x1001, GET_FS = 0x1003, GET_GS = 0x1004;
+            auto le64 = [](u64 v) { std::vector<u8> b(8); for (int i = 0; i < 8; ++i) b[i] = (u8)(v >> (8 * i)); return b; };
             switch (a[0]) {
-                case SET_FS: c.set_fs_base(a[1]); return 0;
-                case SET_GS: c.set_gs_base(a[1]); return 0;
-                case GET_FS: c.write_bytes(a[1], {}, "arch_prctl get_fs"); return 0;
-                case GET_GS: return 0;
+                case SET_FS: fs_base_ = a[1]; c.set_fs_base(a[1]); return 0;
+                case SET_GS: gs_base_ = a[1]; c.set_gs_base(a[1]); return 0;
+                case GET_FS: c.write_bytes(a[1], le64(fs_base_), "arch_prctl get_fs"); return 0;
+                case GET_GS: c.write_bytes(a[1], le64(gs_base_), "arch_prctl get_gs"); return 0;
                 default: return -22;  // -EINVAL
             }
         }
